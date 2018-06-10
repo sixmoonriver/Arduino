@@ -41,7 +41,7 @@ void loop() {
 if(results.value == 21546)
 {
   lastpowerstate = powerstate;
-  powerstate = !powerstate;  
+  powerstate = !powerstate;	
 }
 irrecv.resume(); // 接收下一个编码
 } 
@@ -49,33 +49,33 @@ irrecv.resume(); // 接收下一个编码
 //Serial.println(powerstate);
 //Serial.println(lastpowerstate); 
 if(powerstate) //如果当前状态是开机，判断是不是第一次，如果是执行常规数据包，否则，执行开机0x100信号
-  if(lastpowerstate)
-  {  // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
-    digitalWrite(ledpin, LOW);
-    //byte sndStat3 = CAN0.sendMsgBuf(0x100, 0, 0, data);
-    byte sndStat = CAN0.sendMsgBuf(0x621, 0, 8, data);
-    byte sndStat2 = CAN0.sendMsgBuf(0x10242040, 1, 1, data2);
-    delay(100);
-    Serial.println("Powerstate  is ON!");
-  }
-  else
-  {
-    byte sndStat3 = CAN0.sendMsgBuf(0x100, 0, 0,data4);
-    delay(1000);
-    lastpowerstate = powerstate;
-  }
+	if(lastpowerstate)
+	{  // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
+	  digitalWrite(ledpin, LOW);
+	  //byte sndStat3 = CAN0.sendMsgBuf(0x100, 0, 0, data);
+	  byte sndStat = CAN0.sendMsgBuf(0x621, 0, 8, data);
+	  byte sndStat2 = CAN0.sendMsgBuf(0x10242040, 1, 1, data2);
+	  delay(100);
+	  Serial.println("Powerstate  is ON!");
+	}
+	else
+	{
+	  byte sndStat3 = CAN0.sendMsgBuf(0x100, 0, 0,data4);
+	  delay(1000);
+	  lastpowerstate = powerstate;
+	}
 else //反之，判断上次状态是不是开机，如果是执行关机程序，同时将上次关机状态设置为关机；
 {
   digitalWrite(ledpin, HIGH);
   if(lastpowerstate)
   {
-  byte sndStat3 = CAN0.sendMsgBuf(0x62c, 0, 8, data3);
+	byte sndStat3 = CAN0.sendMsgBuf(0x62c, 0, 8, data3);
     Serial.println("Power is turning off!");
-  delay(30000);
-  lastpowerstate = powerstate;
-  } 
+	delay(30000);
+	lastpowerstate = powerstate;
+  }	
   else 
-  Serial.println("Power has already turned off.");
+	Serial.println("Power has already turned off.");
 }
 
 }
