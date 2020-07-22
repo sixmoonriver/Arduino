@@ -1,7 +1,7 @@
 /*
 [url=http://www.openjumper.com/]www.openjumper.com[/url]
 日期:2013.5.18
-update 2020.7.22 编译通过，未验证
+update 2020.7.22 编译通过，未验证。
 IDE 版本:1.0.1
 
 */
