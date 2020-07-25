@@ -1,6 +1,7 @@
 /*
 encore-radio脱机运行 arduino+mcp2515
 日期:2018.6.9
+
 */
 
 #include <mcp_can.h>
@@ -14,8 +15,8 @@ byte data4[1] = {};
 byte data[8] = {0x00, 0x52, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 byte data2[1] = {0x01};
 byte data3[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
-bool currentpowerstate = false;
 bool powerstate = false;
+bool lastpowerstate = false;
 int ledpin = 4;
  
 int RECV_PIN = 9; // 红外一体化接收头连接到Arduino 9号引脚
@@ -34,52 +35,48 @@ pinMode(ledpin,OUTPUT);
 digitalWrite(ledpin, HIGH);
 }
  
-void powerControl(bool powerstate)
+void loop() {
+ if (irrecv.decode(&results))
 {
+if(results.value == 21546)
+//if(results.value == 1094975743)
+{
+  lastpowerstate = powerstate;
+  powerstate = !powerstate;  
+}
+irrecv.resume(); // 接收下一个编码
+} 
+
 //Serial.println(powerstate);
 //Serial.println(lastpowerstate); 
-if(powerstate) //如果状态是开机,执行开机
+if(powerstate) //如果当前状态是开机，判断是不是第一次，如果是执行常规数据包，否则，执行开机0x100信号
+  if(lastpowerstate)
   {  // send data:  ID = 0x100, Standard CAN Frame, Data length = 8 bytes, 'data' = array of data bytes to send
     digitalWrite(ledpin, LOW);
-    byte sndStat3 = CAN0.sendMsgBuf(0x100, 0, 0, data);
+    //byte sndStat3 = CAN0.sendMsgBuf(0x100, 0, 0, data);
     byte sndStat = CAN0.sendMsgBuf(0x621, 0, 8, data);
     byte sndStat2 = CAN0.sendMsgBuf(0x10242040, 1, 1, data2);
     delay(100);
     Serial.println("Powerstate  is ON!");
   }
+  else
+  {
+    byte sndStat3 = CAN0.sendMsgBuf(0x100, 0, 0,data4);
+    delay(1000);
+    lastpowerstate = powerstate;
+  }
 else //反之，判断上次状态是不是开机，如果是执行关机程序，同时将上次关机状态设置为关机；
 {
   digitalWrite(ledpin, HIGH);
+  if(lastpowerstate)
+  {
   byte sndStat3 = CAN0.sendMsgBuf(0x62c, 0, 8, data3);
     Serial.println("Power is turning off!");
-  delay(10000);
+  delay(30000);
+  lastpowerstate = powerstate;
+  } 
+  else 
+  Serial.println("Power has already turned off.");
 }
-}
- 
-void loop() {
- if (irrecv.decode(&results))
-{
-if(results.value == 21546)
-{
-  currentpowerstate = !currentpowerstate; 
-  powerControl(currentpowerstate);
-}
-if(results.value == 9258)
-{
-  byte sndStat4 = CAN0.sendMsgBuf(0x220, 0, 1, data2);
-  Serial.println("vol up");
-}
-irrecv.resume(); // 接收下一个编码
-if(currentpowerstate)
-{
-    byte sndStat = CAN0.sendMsgBuf(0x621, 0, 8, data);
-    byte sndStat2 = CAN0.sendMsgBuf(0x10242040, 1, 1, data2);
-    delay(100);
-    Serial.println("Power on!");  
-}
-Serial.print("Power state is:  ");
-Serial.println(currentpowerstate);
-
-} 
 
 }
