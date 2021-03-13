@@ -17,7 +17,8 @@ byte data2[1] = {0x01};
 byte data3[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
 bool powerstate = false;
 bool lastpowerstate = false;
-int ledpin = 4;
+int ledPin = 13;
+int fanPin=4;
 unsigned long count=0;
 unsigned long lasttime =0;
 int interval=7000; 
@@ -36,23 +37,31 @@ if(CAN0.begin(MCP_ANY, CAN_33K3BPS, MCP_16MHZ) == CAN_OK) Serial.println("MCP251
 else Serial.println("Error Initializing MCP2515...");
 CAN0.setMode(MCP_NORMAL);   // Change to normal mode to allow messages to be transmitted
 irrecv.enableIRIn(); // 初始化红外解码
-pinMode(ledpin,OUTPUT);
-digitalWrite(ledpin, HIGH);
+pinMode(ledPin,OUTPUT);
+pinMode(fanPin,OUTPUT);
+digitalWrite(ledPin, HIGH);
+digitalWrite(fanPin, LOW);
 }
  
 void loop() {
  if (irrecv.decode(&results))
 {
-if(results.value == 21546)
+	//skyworth YK-60HB Power ON code --->>> 1886400719
+	//sony code --->>> 21546
+if(results.value == 1886400719)
 {
   if(powerstate){
   byte sndStat3 = CAN0.sendMsgBuf(0x62c, 0, 8, data3);
-    Serial.println("Power is turning off!");
+  digitalWrite(fanPin, LOW);
+  digitalWrite(ledPin, HIGH);
+  Serial.println("Power is turning off!");
   delay(300);
   }
   else{
     byte sndStat = CAN0.sendMsgBuf(0x621, 0, 8, data);
     byte sndStat2 = CAN0.sendMsgBuf(0x10242040, 1, 1, data2);
+	digitalWrite(fanPin, HIGH);
+	digitalWrite(ledPin, LOW);
     delay(100);
     Serial.println("Powerstate  is ON!");
   //记录时间
