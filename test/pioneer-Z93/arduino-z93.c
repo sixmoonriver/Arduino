@@ -14,6 +14,14 @@ IR remoter is skyworth YK-60HB
   5、普通红外接收头；
 */
 
+/*
+	2022.9.17更新
+	修复了开机强制设置为单声道的问题；
+	增加了上拉电阻和到GPIO的引脚电阻，解决了电台误别和立体声状态显示不正常的问题； 
+	在电台首行简易显示是否收到电台和是否为立体声的问题；有电台首行首位显示1，否则显示0；立体声在尾部显示ST，否则显示MO
+	更换LA1265的中周（第一音响拆机），槽路电路还是有些发黑，飞扬971出了立体声。
+*/
+
 
 #include <LCD_I2C.h>
 #include <IRremote.h>
@@ -32,11 +40,15 @@ int RECV_PIN = 7; // 红外一体化接收头连接到Arduino 7号引脚
 IRrecv irrecv(RECV_PIN);
 decode_results results; // 用于存储编码结果的对象
 
-const int Mute = 3;
+const int mono = 2;  //强制单声道切换
+const int Mute = 3; 
 const int PLL_data = 4;
 const int PLL_clock = 5 ;
 const int PLL_CE = 6 ;
+const int tune = 8;  // 调谐状态指示，收到电台为低电平；
+const int stled = 9; // 立体声指示，低电平为音体声状态
 int muteState = 0;
+int stereoState = 0; //默认立体声
 int disIndex = 0; //循环显示的频道索引
 int curIndex = 0; //当前频道索引
 int curfreq = 875; //当前频道频率
@@ -57,9 +69,25 @@ void staticDisplay()
   //如果超过刷新间隔时间，进行一次刷新，
   if (millis()-last >= interval){
      lcd.clear();
-     lcd.setCursor(2,0);
-     lcd.print(F("LY-Radio: "));
+     lcd.setCursor(0,0);
+	 //是否收到电台,在开始显示0或者1
+	 if(digitalRead(tune))
+	 {
+		lcd.print("0");
+	 }
+	 else{
+		lcd.print("1");
+	 }
+     lcd.print(F(" LY-Radio:"));
      lcd.print(curIndex);
+	 //判断是否立体声，是否收到电台
+	 if(digitalRead(stled))
+	 {
+		lcd.print(" MO");
+	 }
+	 else{
+		lcd.print(" ST");
+	 }
      //如果电台遍历完成，重置电台索引
      if(disIndex >=  sizeof(radiolist)/sizeof(radiolist[0]))
      {
@@ -175,8 +203,11 @@ void setup(){
   pinMode(PLL_data, OUTPUT);//!
   pinMode(PLL_clock, OUTPUT);
   pinMode(PLL_CE, OUTPUT);
-  pinMode(Mute,OUTPUT);
-
+  pinMode(Mute, OUTPUT);
+  pinMode(mono, OUTPUT);
+  pinMode(tune, INPUT);
+  pinMode(stled, INPUT);
+  digitalWrite(mono,stereoState);
  // pll_set_frequency(radiolist[0]);
   delay (30);//ms
   lcd.begin();
@@ -210,6 +241,15 @@ void loop(){
     case 1886437949: if(curfreq <= 875) curfreq =  1080; curfreq = --radiolist[curIndex]; pll_set_frequency(curfreq);Serial.print(">>>down");Serial.println(curfreq,DEC);operDisplay(">>>down",curfreq);lastoper = millis();break;
    //静音控制，收到后对静音状态进行翻转，将静音状态写入静音控制脚，即按一下静音，再按一下解除。串口和显示屏输出，重置lastoper；
     case 1886433359: muteState = !muteState;digitalWrite(Mute,muteState);Serial.println("Mute");operDisplay("Mute",curfreq);lastoper = millis();break;
+  //立体声控制，收到后对静音状态进行翻转，将静音状态写入静音控制脚，即按一下静音，再按一下解除。串口和显示屏输出，重置lastoper；
+    case 1886394599: 
+  {
+    stereoState = !stereoState;
+    digitalWrite(mono,stereoState);
+    if(stereoState){Serial.println("Stereo");operDisplay("Stereo",curfreq);lastoper = millis();}
+    else{Serial.println("Mono");operDisplay("Mono",curfreq);lastoper = millis();}
+    break;
+  }
    //case 1886437439: pll_set_frequency(radiolist[2]);Serial.println("3");break;
     //default: pll_set_frequency2(radiolist[0]);
   }
@@ -248,8 +288,5 @@ else {
 音量- 1886431319
 上 1886405309
 下 1886437949
+声音模式（立体声）：1886394599
 */
-
-
-
-
