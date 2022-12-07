@@ -61,22 +61,14 @@ void loop() {
   //hour_   = hour(unix_epoch);
   // 如果距离上次超过1秒，闪烁
   if ( second(unix_epoch) != lastTime  ) {
-		d.displayString(Time);
-		mhState = !mhState;
-//		for(int i=0;i<4;i++){
-			d.setDot(1,mhState);
-			//delay(1000);
-	//	}
-    //Serial.print(hour(unix_epoch));
-	//Serial.print(":");
-	//Serial.println(minute(unix_epoch));
-//计算时间并显示
+		d.displayString(Time); //这个显示必须在setDot前面，否则冒号显示不正常，会被刷掉。
+
+//计算时间并显示 
     minute_ = minute(unix_epoch);
     hour_   = hour(unix_epoch);
     day_    = day(unix_epoch);
     month_  = month(unix_epoch);
     //year_   = year(unix_epoch);
- 
     //Time[12] = second_ % 10 + 48;
     //Time[11] = second_ / 10 + 48;
     Time[3]  = minute_ % 10 + 48;
@@ -93,7 +85,7 @@ void loop() {
     Serial.print(Time);
 	Serial.println(lastTime);
 	lastTime = second(unix_epoch); 
-  }
-
-  
+    mhState = !mhState;
+	d.setDot(1,mhState); //冒号的位号是1；
+  } 
 }
