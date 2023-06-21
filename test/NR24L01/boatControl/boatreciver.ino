@@ -73,7 +73,7 @@ void loop()
   //控制数据处理
   //1、摄像头方向控制
   camval = con_value & 0x0f;
-  camval = map(camval,-127,128,45,135);
+  camval = map(camval,0,255,45,135);
   camservo.write(camval);
   //2、开关信号处理
   switch1 = bitRead(con_value,7); 
