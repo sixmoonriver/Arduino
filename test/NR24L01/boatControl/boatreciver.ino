@@ -1,7 +1,7 @@
 /*
   船模控制2.0版本
   1、GT24模块进行通信，传输24位的数据，低8位是油门、次8位是方向，再高位是功能开关。
-  2、接线方法：设置主电机（电调）的控制脚为3，方向舵机的控制引脚为5，摄像头舵机的控制引脚为6，第1位开关的控制输出为4；
+  2、接线方法：设置主电机（电调）的控制脚为6，方向舵机的控制引脚为5，摄像头舵机的控制引脚为3，第1位开关的控制输出为4；
   
 */
 
@@ -55,14 +55,16 @@ void loop()
   //ym = lowByte(value);
   fx = (value & 0xff00) >> 8;
   ym = value & 0xff;
-  con_value = (value & 0xffff0000) >>16;
-  Serial.print("fx = ");
+  con_value = (value >> 16) & 0xff;
+  /*Serial.print("fx = ");
   Serial.print(fx);
   Serial.print(",");
   Serial.print("ym = ");
   Serial.println(ym);
-  Serial.print("Switch and CAM: ");
-  Serial.println(con_value,BIN);
+  Serial.print("Switch and CAM: "); 
+  Serial.println(con_value,BIN); */
+  Serial.print("Recive Data: "); 
+  Serial.println(value,BIN); 
   delay(100);
  }
   //转换油门值为油门实际值，进行油门控制
@@ -73,7 +75,9 @@ void loop()
   //控制数据处理
   //1、摄像头方向控制
   camval = con_value & 0x0f;
-  camval = map(camval,0,255,45,135);
+  //Serial.print("Camval: ");
+  //Serial.println(camval);
+  camval = map(camval,0,15,160,10);
   camservo.write(camval);
   //2、开关信号处理
   switch1 = bitRead(con_value,7); 
