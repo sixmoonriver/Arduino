@@ -1,12 +1,29 @@
 
 /*
-船模制作：
+制作原理：
 
 1、用NR24L01实现遥控功能，一个arduino做遥控器，一个做为接收器。用一个摇杆控制油门和方向；
-2、用舵机控制方向；
-3、用电调无刷电机控制速度； 
-4、用一个舵机控制摄像头的方向；
-5、灯的控制
+2、用两个舵机来控制炮塔（摄像头）的方位和俯仰；
+3、另外，有4个开关（最多可以有8个），用于控制灯，音乐等设备； 
+4、GT24，低8位传输油门信号，8~15位传输方向信号，16~24位，各4位传输炮塔的方位和俯仰信号。最高8位传输开关信号
+
+接线方法：
+  油门电位器中点接模拟IO A1；
+  方向电位器中点接模拟IO A0；
+  方位电位器中点接模块IO A2；
+  俯仰电位器中点接模块IO A3；
+  电压检测原CPU24脚接   A4；
+  指示灯接D6； 
+  
+  NR24L01接线：
+  CSN  <---> D7
+  CE   <---> D8
+  MOSI <---> D11
+  MISO <---> D12
+  SCK  <---> D13
+  VCC  <---> 3.3V
+
+  数据IO D2、D3、D4、D5分别的4个开关 
 */
 
 // 遥控器部分代码
@@ -29,22 +46,29 @@ union transData
 transData thisUnion;
 //Serial.println(thisUnion.newvalue, HEX);
 
-int xpin = 0;  // 方向输入脚模拟A0
-int ypin = 1;  // 油门输入脚模拟A1
-int camControlX = 2; // 方向输入脚模拟A2
-int camControlY = 3; // 方向输入脚模拟A3
+int xpin = A0;  // 方向输入脚模拟A0
+int ypin = A1;  // 油门输入脚模拟A1
+int camControlX = A2; // 方向输入脚模拟A2
+int camControlY = A3; // 方向输入脚模拟A3
+int volDect = A4; // 电压检测；
+int lowPower = 706; //电压告警阈值
+// 3S电池告警电压3.6V，电池总电压为10.8V，检测处电压3.45V（4700/（10000上拉电阻+4700下拉电阻）* 10.8），对应读取值为707
 //开关引脚定义
-int switchPin1 = 6;
-int switchPin2 = 7;
-int switchPin3 = 8;
-int switchPin4 = 9;
-
+int swPin[] = {2,3,4,5};
+//LED指示灯
+int exLed = 6;
+long lastLed = 0;
+int ledState = 0;
+//当前读取的开关状态
+int pinState[4] ={0};
 //开关状态
-int pin1Reading,pin2Reading,pin3Reading,pin4Reading = 0;
-int switchState1,switchState2,switchState3,switchState4 = 0;
-int lastSwitchState1,lastSwitchState2,lastSwitchState3,lastSwitchState4 = 0;
+int swState[4] = {0};
+//上一次开关的状态
+int lastSwState[4] = {0};
 //去抖动时间
-long interval,lastTime1,lastTime2,lastTime3,lastTime4=0;
+long interval=50;
+//上次开关变化的时间
+long lastTM[4] = {0};
 void setup()
 {
   Mirf.spi = &MirfHardwareSpi;
@@ -59,11 +83,28 @@ void setup()
   Mirf.readRegister( RF_SETUP, &rf_setup, sizeof(rf_setup) );
   Serial.print( "rf_setup = " );
   Serial.println( rf_setup, BIN );
+  for(int i=0;i<4;i++){
+    pinMode(swPin[i], INPUT_PULLUP);
+  }
+  pinMode(xpin, INPUT);
+  pinMode(ypin, INPUT);
+  pinMode(camControlX, INPUT);
+  pinMode(camControlY, INPUT);
+  pinMode(exLed, OUTPUT);
+  digitalWrite(exLed, LOW);
 }
 void loop()
 {
   Mirf.setTADDR((byte *)"RECVE");           //设置接收端地址
   //读取摇杆的数值
+  //电池电压检查，低于阈值就闪烁1秒为周期
+  if(analogRead(volDect) <= lowPower){
+    //指示灯闪烁
+    if(millis()-lastLed >= 1000){
+      digitalWrite(exLed, !ledState);
+      lastLed = millis();
+    }
+  }
   xSourceValue = analogRead(xpin);  //读取摇杆输入的数值
   x_value = map(xSourceValue,0,1023,0,255); //将模拟量的10位值转为8位值；
   ySourceValue = analogRead(ypin);
@@ -76,61 +117,44 @@ void loop()
   camSourceValueY = analogRead(camControlY);
   cam_valueY = map(camSourceValueY,0,1023,0,15);
   camValue = (cam_valueY << 4) + cam_valueX;
-  /* 读取开关1状态，如果状态发生变化，记录时间
-  pin1Reading = digitalRead(switchPin1);
-  if( lastSwitchState1 != switchState1) {
-    lastTime1 = millis();
-  }
-  // 如果当时时间到上一次开关状态变化的时间差大于防抖动的时间，再判断当前的状态和上次的状态是否一致，如不一致，说明开关状态发生了变化。将开关状态
-  if(millis() - lastTime1 >= interval) {
-    if(pin1Reading != lastSwitchState1) {
-      switchState1 = pin1Reading;
-    }
-  }
-  // 控制数据处理
-  // 最高4位为开关状态，最高位为开关1的状态，以此类推6、5、4为开关2、3、4
-  //bitWrite(con_value,7,switchState1);
-  lastSwitchState1 = pin1Reading;
-  //开关2~4位处理；
-  //控制数据组装
-  con_value =  cam_valueX;
-  */
-  con_value = 0xCC; //11001100BIN
-  if(x_value != last_xvalue | y_value != last_yvalue | con_value != last_convalue | camValue != last_camValue)
+  
+  //开关状态检测，带去抖动功能
+  for(int i=0;i<4;i++)
   {
-    //发送的数据组装
+    //读取开关状态，如果状态发生变化，记录时间
+    pinState[i] = digitalRead(swPin[i]);
+    if( lastSwState[i] != pinState[i]) {
+      lastTM[i] = millis();
+      lastSwState[i] = pinState[i];
+    }
+    // 如果当前时间到上一次开关状态变化的时间差大于防抖动的时间，再判断当前的状态和上次的状态是否一致，如不一致，说明开关状态发生了变化，更新开关状态
+    if(millis() - lastTM[i] >= interval) {
+      if(pinState[i] == lastSwState[i]) {
+        swState[i] = pinState[i];
+        bitWrite(con_value,i,swState[i]);
+      }
+    }  
+  }
+  /* 
+  // 最低4位为开关状态，最低位为开关1的状态，由低到高分别为6、7、8、9脚的状态，高4位暂时未用
+  Serial.print("swState:");
+  for(int j=0; j<4; j++){
+    Serial.print(swState[j]);
+    Serial.print(",");
+    //bitWrite(con_value,j,swState[j]);
+  }
+  Serial.println();*/
+ 
+  //数据有变化才发送，防止电位器抖动导致的值变化
+  if(abs(x_value - last_xvalue) > 5 | abs(y_value - last_yvalue) > 5 | con_value != last_convalue | camValue != last_camValue)
+  {
+  //发送的数据组装
 	//trans_value = 0;
   thisUnion.buffer[0] = y_value;
   thisUnion.buffer[1] = x_value;
   thisUnion.buffer[2] = camValue;
   thisUnion.buffer[3] = con_value; 
-  //trans_value = y_value | (x_value<<8) | (camValue<<16) | (con_value<<24);
-  //trans_value = (con_value<<24) | trans_value;
-  //Serial.println(trans_value,BIN);
-  //trans_value = (camValue<<16) |  trans_value; 
-  //Serial.println(trans_value,BIN);
-  //trans_value = (x_value<<8) |  trans_value;
-  //Serial.println(trans_value,BIN);
-  //trans_value = trans_value | y_value;
-  //Serial.println(trans_value,BIN);
-	/*if(con_value > 0){
-	  trans_value = con_value + trans_value;
-		trans_value = trans_value<<24; //控制数据左移24位，到25~32位；	
-	}
-  if(camValue > 0 ){
-    temp_value = 0;
-    temp_value = (temp_value + camValue) << 16; //cam数据左移16位，到16~24位；
-    trans_value = temp_value + trans_value;
-  } 
-	if(x_value > 0){
-		temp_value = 0;
-		temp_value = (temp_value + x_value) << 8;
-		trans_value =  temp_value + trans_value; //方向数据左移8位，8~16位；
-	}
-    if(y_value > 0){
-		trans_value = trans_value + y_value; //油门数据组装
-	}
- */
+  //发送数据并打印
 	Mirf.send((byte *)&thisUnion.newvalue);                //发送指令，组合后的数据，低8位为油门数据，高8位为方向数据
     while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环
     last_xvalue = x_value;   //last数据更新
