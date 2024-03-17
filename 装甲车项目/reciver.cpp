@@ -1,8 +1,29 @@
 /*
-  船模控制2.0版本
-  1、GT24模块进行通信，传输24位的数据，低8位是油门、次8位是方向，再高位是功能开关。
-  2、接线方法：设置主电机（电调）的控制脚为6，方向舵机的控制引脚为5，摄像头舵机的控制引脚为3，第1位开关的控制输出为4；
-  注意：用串口调试可能会产生干扰，导致调整一个舵机，另一个也会动。
+制作原理：
+
+1、用NR24L01实现遥控功能，一个arduino做遥控器，一个做为接收器。用一个摇杆控制油门和方向；
+2、用两个舵机来控制炮塔（摄像头）的方位和俯仰；
+3、另外，有4个开关（最多可以有8个），用于控制灯，音乐等设备； 
+4、GT24，低8位传输油门信号，8~15位传输方向信号，16~24位，各4位传输炮塔的方位和俯仰信号。最高8位传输开关信号
+
+接线方法：
+  D2、D3接左侧驱动的控制；
+  D4、D5接右侧驱动的控制；
+  D9、D10分别为左右侧电压控制；
+  D6接方位舵机；
+  A0接俯仰舵机；
+  A4 SDA接pcf8574
+  A5 SCL接pcf8574
+
+  NR24L01接线：
+  CSN  <---> D7
+  CE   <---> D8
+  MOSI <---> D11
+  MISO <---> D12
+  SCK  <---> D13
+  VCC  <---> 3.3V
+
+  数据IO D2、D3、D4、D5分别的4个开关 
 */
 
 #include <SPI.h>
@@ -12,7 +33,7 @@
 #include <Servo.h>
 #include <Adafruit_PCF8574.h>
 
-//Adafruit_PCF8574 pcf;
+Adafruit_PCF8574 pcf;
 Servo fwservo; // 建立方位舵机对象
 Servo fyservo; // 创建俯仰舵机对象
 
@@ -22,6 +43,10 @@ int left1 = 2;
 int left2 = 3;
 int right1 = 4;
 int right2 = 5;
+int leftPwm = 9;
+int rightPwm = 10;
+int leftSpeed = 128;
+int rightSpeed = 128;
 
 uint8_t ym,fx,con_value,ptValue = 0;
 uint32_t recValue = 0;
@@ -44,13 +69,13 @@ void turnRight();
 void setup()
 {
   // 初始化pcf8574对象，默认地址为0x20，如果地址改了，要改！！
- /* if (!pcf.begin(0x20, &Wire)) {
+  if (!pcf.begin(0x20, &Wire)) {
     Serial.println("Couldn't find PCF8574");
     while (1);
   }
   for (uint8_t p=0; p<8; p++) {
     pcf.pinMode(p, OUTPUT);
-  }*/
+  }
     Mirf.spi = &MirfHardwareSpi;
     Mirf.init();
     Mirf.setRADDR((byte *)"RECVE"); //设置自己的地址（发送端地址），使用5个字符
@@ -66,13 +91,15 @@ void setup()
   //舵机初始化
   fwservo.attach(6);
   fwservo.write(90);//回到中间位置
-  fyservo.attach(7);
+  fyservo.attach(A0);
   fyservo.write(90);//回到中间位置
   //控制引脚设置
   pinMode(left1, OUTPUT);
   pinMode(left2, OUTPUT);
   pinMode(right1, OUTPUT);
   pinMode(right2, OUTPUT);
+  pinMode(leftPwm, OUTPUT);
+  pinMode(rightPwm, OUTPUT);
 
 }
  
@@ -101,8 +128,8 @@ void loop()
   Serial.println(ptValue,BIN);
  
  }
- delay(100);
-/*
+ delay(100); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
+
   //有刷电机油门控制
   if(ym >= 120 and ym <= 136) {
     stop();
@@ -121,7 +148,8 @@ void loop()
     turnLeft();
   }
   // 控制值处理
-  //pcf.digitalWriteByte(con_value);
+  pcf.digitalReadByte();
+  pcf.digitalWriteByte(con_value);
   //炮台控制 低4位为方位，高4位为俯仰
   //方位控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
   fwval = ptValue & 0x0f;
@@ -138,7 +166,7 @@ void loop()
     fyservo.write(fyval);
     lastFyval = fyval;
   }
-*/
+
 }
 // 电机前进
 void forward(){
@@ -163,6 +191,7 @@ void stop(){
 }
 //左转，左轮后退，右轮前进
 void turnLeft(){
+    analogWrite(leftPwm, leftSpeed);
     digitalWrite(left1, LOW);
     digitalWrite(left2, HIGH);
     digitalWrite(right1, HIGH);
@@ -170,6 +199,7 @@ void turnLeft(){
 }
 //右转 左轮前进，右轮后退
 void turnRight(){
+    analogWrite(rightPwm, rightSpeed);
     digitalWrite(left1, HIGH);
     digitalWrite(left2, LOW);
     digitalWrite(right1, LOW);
