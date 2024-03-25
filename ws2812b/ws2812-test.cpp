@@ -1,8 +1,8 @@
 #include <Adafruit_NeoPixel.h>
 
 #define PIN 4
-
-Adafruit_NeoPixel strip = Adafruit_NeoPixel(8, PIN, NEO_GRB + NEO_KHZ800);
+#define LEDC 8
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(LEDC, PIN, NEO_GRB + NEO_KHZ800);
 int inputX = A1;
 int inputY = A0;
 int swPin = 7;
@@ -32,8 +32,8 @@ void loop() {
     char command = Serial.read();
     switch (command)
     {
-      case '+' :  ledNumber++; strip.clear(); break;
-      case '-' :  ledNumber--; strip.clear(); break;  
+      case '+' :  if(ledNumber<LEDC) ledNumber++; strip.clear(); break;
+      case '-' :  if(ledNumber>0) ledNumber--; strip.clear(); break;  
       default: ; 
     break;
   }
