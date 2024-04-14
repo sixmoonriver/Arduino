@@ -1,0 +1,67 @@
+#include <Servo.h>
+#include <SoftwareSerial.h>
+
+#define __DEBUG__
+
+#ifdef __DEBUG__
+#define DEBUG(...) Serial.print(__VA_ARGS__)
+#define DEBUGL(...) Serial.println(__VA_ARGS__)
+//#define DEBUG(...) Serial.println(__VA_ARGS__); \
+                   Serial.print(" @ [SRC]:      "); \
+                   Serial.println(__FILE__); \
+                   Serial.print(" @ [LINE]:     "); \
+                   Serial.println(__LINE__); \
+                   Serial.print(" @ [FUNCTION]: "); \
+                   Serial.println(__func__); 
+#else
+#define DEBUG(...)
+#define DEBUGL(...)
+#endif
+
+SoftwareSerial S2(A0, A3); //A0为接收，A3为发送；
+Servo fwservo; // 建立方位舵机对象
+Servo fyservo; // 创建俯仰舵机对象
+uint8_t ptValue,fwval,fyval,lastFwval,lastFyval = 0;
+
+
+void setup(){
+  Serial.begin(115200);
+  Serial.println("Input 263,228,194,129,255,224,192,128,8,4,2,1");
+  S2.begin(9600);
+  fwservo.attach(2,600,2000);
+  fwservo.write(90);//回到中间位置
+  fyservo.attach(A1,600,2000);
+  fyservo.write(90);//回到中间位置
+}
+
+void loop(){
+  //if(Serial.available()){
+  //  ptValue = Serial.read();
+  if(S2.available()){
+    ptValue = S2.read();
+  }
+//炮台控制 低4位为方位，高4位为俯仰
+  //方位控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
+  fwval = ptValue & 0x0f;
+  if(fwval != lastFwval){
+    DEBUG("paota FW: ");
+    DEBUGL(fwval);
+    lastFwval = fwval;
+    fwval = map(fwval,0,15,10,160);  //160,10为舵机的可转动范围，根据需要调整；
+    fwservo.write(fwval);
+    
+  }
+
+  //俯仰控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
+  fyval = (ptValue>>4) & 0x0f;
+
+  if(fyval != lastFyval){
+    DEBUG("paota FY: ");
+    DEBUGL(fyval);
+    lastFyval = fyval;
+    fyval = map(fyval,0,15,90,135);
+    fyservo.write(fyval);
+    
+  }
+  delay(100);
+}

@@ -36,7 +36,10 @@
 #include <Adafruit_PCF8574.h>
 //#include <C:\Users\Administrator\Documents\Arduino\libraries\Adafruit-Motor-Shield-library\AFMotor.h>
 #include <SoftwareSerial.h>
+#include <Adafruit_NeoPixel.h>
 
+// Ws2812 引脚
+#define PIN 4
 #define __DEBUG__
 
 #ifdef __DEBUG__
@@ -54,25 +57,28 @@
 #define DEBUGL(...)
 #endif
 
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(8, PIN, NEO_GRB + NEO_KHZ800);
+
+SoftwareSerial S2(A0, A3); //A0为接收，A3为发送；
 
 Adafruit_PCF8574 pcf;
-Servo fwservo; // 建立方位舵机对象
-Servo fyservo; // 创建俯仰舵机对象
+//Servo fwservo; // 建立方位舵机对象
+//Servo fyservo; // 创建俯仰舵机对象
 //SoftwareSerial S2(A2, A3); //A2为接收，A3为发送；
 
 //定义驱动板控制引脚
 int left1 = 3;
 int left2 = 9;
-int right1 = A6;
-int right2 = A7;
+int right1 = 2;
+int right2 = 10;
 int leftPwm = 5;
 int rightPwm = 6;
 //速度
 int leftSpeed = 128;
 int rightSpeed = 128;
 int forwardSpeed = 128;
-int lowSpeed = 80;  //轮子最低速度，低于此值电机无法转动
-//轮子的转弯系数
+int lowSpeed = 80;  //轮子最低速度，低于此值电机无法转动 
+//轮子的转弯系数 数值越大，两轮的转速差距越大 2.1
 float turnIndex = 2.1;
 //方向的停止范围
 int turnUp = 130;
@@ -91,7 +97,7 @@ bool isForward = 1;
 //停机相关设置
 long lastStopTime = 0;
 long stopInterval = 1000; //1秒
-uint8_t ym,fx,con_value,ptValue = 0;
+uint8_t ym,fx,con_value,ptValue,lastPtValue = 0;
 uint32_t recValue = 0;
 int fwval,fyval,camval,lastFyval,lastFwval = 0;
 //接收数据联合体
@@ -111,6 +117,8 @@ void stop();
 
 void setup()
 {
+  Serial.begin(115200);
+  S2.begin(9600);
   // 初始化pcf8574对象，默认地址为0x20，如果地址改了，要改！！
   if (!pcf.begin(0x20, &Wire)) {
     Serial.println("Couldn't find PCF8574");
@@ -125,18 +133,23 @@ void setup()
     Mirf.payload = 4;  // 设置传送位数，16位是2，32位是4；
     Mirf.channel = 90;              //设置所用信道
     Mirf.config();
-  Serial.begin(115200);
-  //S2.begin(9600);
+
    // Read and print RF_SETUP 无线模块初始化检查
   byte rf_setup = 0;
   Mirf.readRegister( RF_SETUP, &rf_setup, sizeof(rf_setup) );
   Serial.print( "rf_setup = " );
   Serial.println( rf_setup, BIN );
   //舵机初始化
-  fwservo.attach(10);
-  fwservo.write(90);//回到中间位置
-  fyservo.attach(A0);
-  fyservo.write(90);//回到中间位置
+  /*
+  servo.attach(pin) 
+  servo.attach(pin, min, max)
+  min(可选)：脉冲宽度，以微秒为单位，对应于舵机上的最小(0度)角度(默认为544)
+  max(可选)：脉冲宽度，以微秒为单位，对应于舵机上的最大(180度)角度(默认为2400)
+  */
+  //fwservo.attach(A3,600,2000);
+  //fwservo.write(90);//回到中间位置
+  //fyservo.attach(A0,600,2000);
+  //fyservo.write(90);//回到中间位置
   //控制引脚设置
   pinMode(left1, OUTPUT);
   //pinMode(left2, OUTPUT);
@@ -145,6 +158,10 @@ void setup()
   pinMode(leftPwm, OUTPUT);
   pinMode(rightPwm, OUTPUT);
   stop();
+  //ws2812初始化
+  strip.begin();
+  strip.show(); // Initialize all pixels to 'off'
+  colorWipe(strip.Color(0, 0, 255), 50, strip.numPixels()); 
 }
  
 void loop()
@@ -161,6 +178,10 @@ void loop()
   con_value = (recValue >> 24) & 0xff;
   //con_value = thisUnion.buffer[3];
   ptValue = (recValue >> 16) & 0xff;
+  if(ptValue != lastPtValue){
+    S2.write(ptValue);
+    lastPtValue = ptValue;
+  }
   //ptValue = thisUnion.buffer[2];
   //串口发送的数据依次为方向、油门、控制、炮台，按最高位到最低位是：控制、炮台、方向、油门
   thisUnion.newvalue = recValue;
@@ -281,13 +302,13 @@ void loop()
   
   // 控制值处理
   //pcf.digitalReadByte();
-  pcf.digitalWriteByte(con_value);
+  pcf.digitalWriteByte(con_value<<4);
   //炮台控制 低4位为方位，高4位为俯仰
   //方位控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
   fwval = ptValue & 0x0f;
   if(fwval != lastFwval){
-    DEBUG("paota FW: ");
-    DEBUGL(fwval);
+    //DEBUG("paota FW: ");
+    //DEBUGL(fwval);
     fwval = map(fwval,0,15,160,10);  //160,10为舵机的可转动范围，根据需要调整；
     //fwservo.write(fwval);
     lastFwval = fwval;
@@ -297,12 +318,17 @@ void loop()
   fyval = (ptValue>>4) & 0x0f;
 
   if(fyval != lastFyval){
-    DEBUG("paota FY: ");
-    DEBUGL(fyval);
+    //DEBUG("paota FY: ");
+    //DEBUGL(fyval);
     fyval = map(fyval,0,15,90,135);
     //fyservo.write(fyval);
     lastFyval = fyval;
+    //利用俯仰值调整灯的数量
+    int ledNumber = map(fyval,0,15,1,strip.numPixels());
+    colorWipe(strip.Color(255,0,0), 0, ledNumber);
   }
+
+
 }
 
 //电机速度调整
@@ -335,4 +361,13 @@ void stop(){
   digitalWrite(left2, LOW);
   digitalWrite(right1, LOW);
   digitalWrite(right2, LOW); 
+}
+// ws2812 灯珠颜色设置
+void colorWipe(uint32_t c, uint8_t wait,int ledNumber) {
+  strip.clear();
+  for(uint16_t i=0; i<ledNumber; i++) {
+    strip.setPixelColor(i, c);
+    strip.show(); //没有这一行，全是黑的；
+    delay(wait);
+  }
 }
