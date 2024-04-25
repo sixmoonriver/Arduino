@@ -19,6 +19,7 @@ byte data2[1] = {0x01};
 byte data3[] = {0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00};
 bool powerstate = false;
 bool lastpowerstate = false;
+bool powerOffIng = false;
 
 unsigned long count=0;
 unsigned long lasttime =0;
@@ -27,7 +28,7 @@ int interval=7000;
 // 定义引脚
 int powerOnPin = 5;  //aux电平检测
 int offButtonPin = 6; //关机引脚
-int fanPin=4; //风扇控制
+int fanPin=3; //风扇控制
 
 //int buttonState = HIGH;
 // 定义记录按键最近一次状态变化的变量，
@@ -57,20 +58,23 @@ void setup()
  
 
 void loop() {
-// 开机控制，如果aux开关是开机，状态是关机，就开机；
-if(digitalRead(powerOnPin)){
-  if(!powerstate){
-    powerstate = true;
-    digitalWrite(fanPin, HIGH);
-    byte sndStat = CAN0.sendMsgBuf(0x621, 0, 8, data);
-		byte sndStat2 = CAN0.sendMsgBuf(0x10242040, 1, 1, data2);
-		digitalWrite(fanPin, HIGH);
-		delay(100);
-		Serial.println("Power turns ON!");
-		//记录时间开机时间，便于下一步进行持续的发送心跳信号
-		lasttime=millis();
-  }
+// 开机控制，如果不是关机中状态，aux开关是开机，状态是关机，就开机；
+if(!powerOffIng){
+	if(digitalRead(powerOnPin)){
+		if(!powerstate){
+			powerstate = true;
+			digitalWrite(fanPin, HIGH);
+			byte sndStat = CAN0.sendMsgBuf(0x621, 0, 8, data);
+				byte sndStat2 = CAN0.sendMsgBuf(0x10242040, 1, 1, data2);
+				digitalWrite(fanPin, HIGH);
+				delay(100);
+				Serial.println("Power turns ON!");
+				//记录时间开机时间，便于下一步进行持续的发送心跳信号
+				lasttime=millis();
+		}
+	}	
 }
+//当关机按键按下时，延时去抖动，判断如果是开机状态，执行关机，并进入关机中状态
 if(!digitalRead(offButtonPin)){
 	delay(debounceDelay);
 	if(!digitalRead(offButtonPin)){
@@ -82,9 +86,14 @@ if(!digitalRead(offButtonPin)){
 			digitalWrite(fanPin, LOW);
 			Serial.println("Power turns off!");
 			delay(300);
-      powerstate = false;
+			powerstate = false;
+			powerOffIng = true;
 		}
 	}
+}
+//关机中的状态只有当aux为低电平才结束
+if(!digitalRead(powerOnPin)){
+	powerOffIng = false;
 }
 	//判断按键状态是否变化，如果没变化，继续循环
 
