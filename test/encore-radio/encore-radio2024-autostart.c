@@ -21,9 +21,8 @@ bool powerstate = false;
 bool lastpowerstate = false;
 bool powerOffIng = false;
 
-unsigned long count=0;
-unsigned long lasttime =0;
-int interval=7000; 
+unsigned long lasttime = 0;
+int interval = 7000; 
 
 // 定义引脚
 int powerOnPin = 5;  //aux电平检测
@@ -76,10 +75,8 @@ if(!powerOffIng){
 }
 //当关机按键按下时，延时去抖动，判断如果是开机状态，执行关机，并进入关机中状态
 if(!digitalRead(offButtonPin)){
-	delay(debounceDelay);
-	if(!digitalRead(offButtonPin)){
-		//Serial.print("buttonState: ");
-		//Serial.println(buttonState);
+	//lastDebounceTime = millis();
+	if((millis()-lastDebounceTime) >= debounceDelay){
 		//如果电源状态是开机，执行关机
 		if(powerstate){
 			byte sndStat3 = CAN0.sendMsgBuf(0x62c, 0, 8, data3);
@@ -88,8 +85,12 @@ if(!digitalRead(offButtonPin)){
 			delay(300);
 			powerstate = false;
 			powerOffIng = true;
+			
 		}
-	}
+	}	
+}
+else{
+	lastDebounceTime = millis(); //按键如果是高电平，一直刷新这个值	
 }
 //关机中的状态只有当aux为低电平才结束
 if(!digitalRead(powerOnPin)){
