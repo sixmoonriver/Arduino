@@ -44,7 +44,7 @@
 uint8_t convert[5]={0};
 uint8_t cam_valueX,cam_valueY,last_cam_valueX,last_cam_valueY,camValue= 0;
 uint16_t xSourceValue,ySourceValue,zSourceValue,camSourceValueX,camSourceValueY=0;
-uint8_t x_value,y_value,z_value,last_xvalue,last_yvalue,con_value,last_convalue,last_camValue=0;
+uint8_t x_value,y_value,z_value,last_zvalue,last_xvalue,last_yvalue,con_value,last_convalue,last_camValue=0;
 uint32_t trans_value, temp_value= 0;
 union transData
 {
@@ -77,7 +77,7 @@ int swState[5] = {0};
 //上一次开关的状态
 int lastSwState[5] = {0};
 //去抖动时间
-long interval=50;
+long interval=100;
 //上次开关变化的时间
 long lastTM[5] = {0};
 void setup()
@@ -118,22 +118,22 @@ void loop()
     }
   }
   xSourceValue = analogRead(xpin);  //读取摇杆输入的数值
-  x_value = map(xSourceValue,0,1023,0,255); //将模拟量的10位值转为8位值；
+  x_value = map(xSourceValue,0,675,0,255); //将模拟量的10位值转为8位值；
   ySourceValue = analogRead(ypin);
-  y_value = map(ySourceValue,0,1023,0,255);
+  y_value = map(ySourceValue,0,675,0,255);
   zSourceValue = analogRead(zpin);
-  z_value = map(zSourceValue,0,1023,0,255);
+  z_value = map(zSourceValue,0,675,0,255);
   //value = random(255); 
   //读取摄像头方位角度控制值
   camSourceValueX = analogRead(camControlX);
-  cam_valueX = map(camSourceValueX,0,1023,0,255);
+  cam_valueX = map(camSourceValueX,0,675,0,255);
   //读取摄像头俯仰角度控制值
   camSourceValueY = analogRead(camControlY);
-  cam_valueY = map(camSourceValueY,0,1023,0,255);
+  cam_valueY = map(camSourceValueY,0,675,0,255);
   //camValue = (cam_valueY << 4) + cam_valueX;
   
   //开关状态检测，带去抖动功能
-  for(int i=0;i<sizeof(swPin)/sizeof(swPin[0]);i++)
+ /* for(int i=0;i<sizeof(swPin)/sizeof(swPin[0]);i++)
   {
     //读取开关状态，如果状态发生变化，记录时间和上一次开关状态；
     pinState[i] = digitalRead(swPin[i]);
@@ -148,8 +148,23 @@ void loop()
         swState[i] = !swState[i]; // 轻触式开关进行翻转即可
         bitWrite(con_value,i,swState[i]);
       }
+    }  */
+// 轻触式开关的检测更加简单，只需要判断是否低电平即可
+  for(int i=0;i<sizeof(swPin)/sizeof(swPin[0]);i++)
+    {
+      //读取开关状态，如果状态为低电平，记录时间和按下标记；
+      pinState[i] = digitalRead(swPin[i]);
+      if( !pinState[i])  {
+        lastTM[i] = millis();
+        lastSwState[i] = 1; //开关按下标记
+      }
+      // 如果开关按下标记正常，且当前时间到上一次开关按下的间差大于防抖动的时间，更新开关状态
+      if(lastSwState[i]  && (millis() - lastTM[i] >= interval)) {
+        swState[i] = !swState[i]; // 轻触式开关进行翻转即可
+        bitWrite(con_value,i,swState[i]);
+        lastSwState[i] = 0; //状态翻转后，将开关按下标记复位
+      }
     }  
-  }
   /* 
   // 最低4位为开关状态，最低位为开关1的状态，由低到高分别为6、7、8、9脚的状态，高4位暂时未用
   Serial.print("swState:");
@@ -161,49 +176,53 @@ void loop()
   Serial.println();*/
  
   //数据有变化才发送，防止电位器抖动导致的值变化
-  if(abs(x_value - last_xvalue) > 5 | abs(y_value - last_yvalue) > 5 | abs(cam_valueX - last_cam_valueX) > 5 | abs(cam_valueY - last_cam_valueY) > 5 | con_value != last_convalue)
+  if(abs(z_value - last_zvalue) > 5 |abs(x_value - last_xvalue) > 5 | abs(y_value - last_yvalue) > 5 | abs(cam_valueX - last_cam_valueX) > 5 | abs(cam_valueY - last_cam_valueY) > 5 | con_value != last_convalue)
+  //| con_value != last_convalue
   {
-  //发送的数据组装
-	//trans_value = 0;
-  //主帧数据处理
-  if(ISmaster){
-    thisUnion.buffer[0] = y_value;
-    thisUnion.buffer[1] = x_value;
-    thisUnion.buffer[2] = z_value;
-    thisUnion.buffer[3] = con_value;
+    //发送的数据组装
+    //trans_value = 0;
+    //主帧数据处理
+    if(ISmaster){
+      bitWrite(con_value,7,0); //写入帧标记位
+      thisUnion.buffer[0] = y_value;
+      thisUnion.buffer[1] = x_value;
+      thisUnion.buffer[2] = z_value;
+      thisUnion.buffer[3] = con_value;
+    }
+    //副帧
+    else{
+      bitWrite(con_value,7,1); //写入帧标记位
+      thisUnion.buffer[0] = cam_valueX;
+      thisUnion.buffer[1] = cam_valueY;
+      thisUnion.buffer[2] = z_value;
+      thisUnion.buffer[3] = con_value;
+    }
+    ISmaster = !ISmaster;
+    // thisUnion.buffer[0] = y_value;
+    // thisUnion.buffer[1] = x_value;
+    // thisUnion.buffer[2] = camValue;
+    // thisUnion.buffer[3] = con_value; 
+    //发送数据并打印
+    Mirf.send((byte *)&thisUnion.newvalue);     //发送指令，组合后的数据
+      while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环
+      last_xvalue = x_value;   //last数据更新
+      last_yvalue = y_value;
+      last_cam_valueX = cam_valueX;
+      last_cam_valueY = cam_valueY;
+      last_zvalue = z_value;
+      last_convalue = con_value;
+      Serial.print("x_value: ");
+      Serial.println(x_value);
+      Serial.print("y_value: ");
+      Serial.println(y_value);
+      Serial.print("cam_valueX: ");
+      Serial.println(cam_valueX);
+      Serial.print("cam_valueY: ");
+      Serial.println(cam_valueY);
+      Serial.print("con_value: ");
+      Serial.println(con_value,BIN);
+      Serial.print("trans_value: ");
+      Serial.println(thisUnion.newvalue,BIN);
   }
-  //副帧
-  else{
-    thisUnion.buffer[0] = cam_valueX;
-    thisUnion.buffer[1] = cam_valueY;
-    bitWrite(con_value,7,0); //写入帧标记位
-    thisUnion.buffer[2] = z_value;
-    thisUnion.buffer[3] = con_value;
-  }
-  ISmaster = !ISmaster;
-  // thisUnion.buffer[0] = y_value;
-  // thisUnion.buffer[1] = x_value;
-  // thisUnion.buffer[2] = camValue;
-  // thisUnion.buffer[3] = con_value; 
-  //发送数据并打印
-	Mirf.send((byte *)&thisUnion.newvalue);     //发送指令，组合后的数据
-    while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环
-    last_xvalue = x_value;   //last数据更新
-    last_yvalue = y_value;
-    last_cam_valueX = cam_valueX;
-    last_cam_valueY = cam_valueY;
-    Serial.print("x_value: ");
-    Serial.println(x_value);
-    Serial.print("y_value: ");
-    Serial.println(y_value);
-	  Serial.print("cam_valueX: ");
-    Serial.println(cam_valueX);
-    Serial.print("cam_valueY: ");
-    Serial.println(cam_valueY);
-    Serial.print("con_value: ");
-    Serial.println(con_value,BIN);
-    Serial.print("trans_value: ");
-    Serial.println(thisUnion.newvalue,BIN);
-  }
-    delay(100);
+  delay(100);
 }
