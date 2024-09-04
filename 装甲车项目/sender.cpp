@@ -41,6 +41,24 @@
 #include <Mirf.h>
 #include <nRF24L01.h>
 #include <MirfHardwareSpiDriver.h>
+
+#define __DEBUG__
+
+#ifdef __DEBUG__
+#define DEBUG(...) Serial.print(__VA_ARGS__)
+#define DEBUGL(...) Serial.println(__VA_ARGS__)
+//#define DEBUG(...) Serial.println(__VA_ARGS__); \
+                   Serial.print(" @ [SRC]:      "); \
+                   Serial.println(__FILE__); \
+                   Serial.print(" @ [LINE]:     "); \
+                   Serial.println(__LINE__); \
+                   Serial.print(" @ [FUNCTION]: "); \
+                   Serial.println(__func__); 
+#else
+#define DEBUG(...)
+#define DEBUGL(...)
+#endif
+
 uint8_t convert[5]={0};
 uint8_t cam_valueX,cam_valueY,last_cam_valueX,last_cam_valueY,camValue= 0;
 uint16_t xSourceValue,ySourceValue,zSourceValue,camSourceValueX,camSourceValueY=0;
@@ -84,7 +102,7 @@ void setup()
 {
   Mirf.spi = &MirfHardwareSpi;
   Mirf.init();
-  Mirf.setRADDR((byte *)"SENDE"); //设置自己的地址（发送端地址），使用5个字符
+  Mirf.setRADDR((byte *)"SENDE2"); //设置自己的地址（发送端地址），使用5个字符
   Mirf.payload = 4;     //设置传送位数，每通道使用8位；低8位是油门、次8位是方向，再高位是功能开关。
   Mirf.channel = 90;              //设置所用信道
   Mirf.config();
@@ -103,11 +121,11 @@ void setup()
   pinMode(camControlY, INPUT);
   pinMode(zpin,INPUT);
   pinMode(exLed, OUTPUT);
-  digitalWrite(exLed, LOW); //指示灯默认关
+  digitalWrite(exLed, LOW); //指示灯默认开
 }
 void loop()
 {
-  Mirf.setTADDR((byte *)"RECVE");           //设置接收端地址
+  Mirf.setTADDR((byte *)"RECVE2");           //设置接收端地址
   //读取摇杆的数值
   //电池电压检查，低于阈值就闪烁1秒为周期
   if(analogRead(volDect) <= lowPower){
@@ -117,19 +135,22 @@ void loop()
       lastLed = millis();
     }
   }
+  else{
+    digitalWrite(exLed, HIGH);
+  }
   xSourceValue = analogRead(xpin);  //读取摇杆输入的数值
-  x_value = map(xSourceValue,0,675,0,255); //将模拟量的10位值转为8位值；
+  x_value = map(xSourceValue,0,710,0,255); //将模拟量的10位值转为8位值；
   ySourceValue = analogRead(ypin);
-  y_value = map(ySourceValue,0,675,0,255);
+  y_value = map(ySourceValue,0,710,0,255);
   zSourceValue = analogRead(zpin);
-  z_value = map(zSourceValue,0,675,0,255);
+  z_value = map(zSourceValue,0,710,0,255);
   //value = random(255); 
   //读取摄像头方位角度控制值
   camSourceValueX = analogRead(camControlX);
-  cam_valueX = map(camSourceValueX,0,675,0,255);
+  cam_valueX = map(camSourceValueX,0,710,0,255);
   //读取摄像头俯仰角度控制值
   camSourceValueY = analogRead(camControlY);
-  cam_valueY = map(camSourceValueY,0,675,0,255);
+  cam_valueY = map(camSourceValueY,0,710,0,255);
   //camValue = (cam_valueY << 4) + cam_valueX;
   
   //开关状态检测，带去抖动功能
@@ -211,18 +232,23 @@ void loop()
       last_cam_valueY = cam_valueY;
       last_zvalue = z_value;
       last_convalue = con_value;
-      Serial.print("x_value: ");
-      Serial.println(x_value);
-      Serial.print("y_value: ");
-      Serial.println(y_value);
-      Serial.print("cam_valueX: ");
-      Serial.println(cam_valueX);
-      Serial.print("cam_valueY: ");
-      Serial.println(cam_valueY);
-      Serial.print("con_value: ");
-      Serial.println(con_value,BIN);
-      Serial.print("trans_value: ");
-      Serial.println(thisUnion.newvalue,BIN);
+      
+      // DEBUG("xSourceValue: ");
+      // DEBUGL(xSourceValue);
+      // DEBUG("ySourceValue: ");
+      // DEBUGL(ySourceValue);
+      DEBUG("x_value: ");
+      DEBUGL(x_value);
+      DEBUG("y_value: ");
+      DEBUGL(y_value);
+      DEBUG("cam_valueX: ");
+      DEBUGL(cam_valueX);
+      DEBUG("cam_valueY: ");
+      DEBUGL(cam_valueY);
+      DEBUG("con_value: ");
+      DEBUGL(con_value,BIN);
+      DEBUG("trans_value: ");
+      DEBUGL(thisUnion.newvalue,BIN);
   }
   delay(100);
 }
