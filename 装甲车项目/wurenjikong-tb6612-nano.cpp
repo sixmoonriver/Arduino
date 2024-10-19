@@ -133,7 +133,7 @@ void setup()
     Mirf.init();
     Mirf.setRADDR((byte *)"RECVE2"); //设置自己的地址（发送端地址），使用5个字符
     Mirf.payload = 4;  // 设置传送位数，16位是2，32位是4；
-    Mirf.channel = 90;              //设置所用信道
+    Mirf.channel = 80;              //设置所用信道
     Mirf.config();
 
    // Read and print RF_SETUP 无线模块初始化检查

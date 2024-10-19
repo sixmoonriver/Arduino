@@ -5,7 +5,7 @@
 1、用NR24L01实现遥控功能，一个arduino做遥控器，一个做为接收器。用一个摇杆控制油门和方向；
 2、用两个舵机来控制炮塔（摄像头）的方位和俯仰；
 3、另外，有4个开关（最多可以有8个），用于控制灯，音乐等设备； 
-4、GT24，低8位传输油门信号，8~15位传输方向信号，16~24位，各4位传输炮塔的方位和俯仰信号。最高7位传输开关信号，最高位为帧标记位，0为主帧，1为副帧
+4、GT24，低8位传输油门信号，8~15位传输方向信号，16~24位，传输炮塔的方位和俯仰信号， 主帧传输方位信号，副帧传输俯仰信号，最高7位传输开关信号，最高位为帧标记位，0为主帧，1为副帧
 
 接线方法：适用无人机遥控改装
   左x电位器中点接模拟IO A1；
@@ -104,7 +104,7 @@ void setup()
   Mirf.init();
   Mirf.setRADDR((byte *)"SENDE2"); //设置自己的地址（发送端地址），使用5个字符
   Mirf.payload = 4;     //设置传送位数，每通道使用8位；低8位是油门、次8位是方向，再高位是功能开关。
-  Mirf.channel = 90;              //设置所用信道
+  Mirf.channel = 80;              //设置所用信道
   Mirf.config();
   Serial.begin(115200);
      // Read and print RF_SETUP 用于检测是否初始化正常；
@@ -205,19 +205,21 @@ void loop()
     //主帧数据处理
     if(ISmaster){
       bitWrite(con_value,7,0); //写入帧标记位
-      thisUnion.buffer[0] = y_value;
-      thisUnion.buffer[1] = x_value;
-      thisUnion.buffer[2] = z_value;
-      thisUnion.buffer[3] = con_value;
+      thisUnion.buffer[2] = cam_valueX;
+      // thisUnion.buffer[2] = z_value;
+      // thisUnion.buffer[3] = con_value;
     }
     //副帧
     else{
       bitWrite(con_value,7,1); //写入帧标记位
-      thisUnion.buffer[0] = cam_valueX;
-      thisUnion.buffer[1] = cam_valueY;
-      thisUnion.buffer[2] = z_value;
-      thisUnion.buffer[3] = con_value;
+      // slaveUnion.buffer[0] = cam_valueX;
+      // slaveUnion.buffer[1] = cam_valueY;
+      thisUnion.buffer[2] = cam_valueY;
+      // slaveUnion.buffer[3] = con_value;
     }
+    thisUnion.buffer[0] = y_value;
+    thisUnion.buffer[1] = x_value;
+    thisUnion.buffer[3] = con_value;
     ISmaster = !ISmaster;
     // thisUnion.buffer[0] = y_value;
     // thisUnion.buffer[1] = x_value;
@@ -225,7 +227,7 @@ void loop()
     // thisUnion.buffer[3] = con_value; 
     //发送数据并打印
     Mirf.send((byte *)&thisUnion.newvalue);     //发送指令，组合后的数据
-      while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环
+    while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环 
       last_xvalue = x_value;   //last数据更新
       last_yvalue = y_value;
       last_cam_valueX = cam_valueX;
@@ -241,6 +243,8 @@ void loop()
       DEBUGL(x_value);
       DEBUG("y_value: ");
       DEBUGL(y_value);
+      DEBUG("z_value: ");
+      DEBUGL(z_value);
       DEBUG("cam_valueX: ");
       DEBUGL(cam_valueX);
       DEBUG("cam_valueY: ");
