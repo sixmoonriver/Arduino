@@ -4,7 +4,7 @@
 1、用NR24L01实现遥控功能，一个arduino做遥控器，一个做为接收器。用一个摇杆控制油门和方向；
 2、用两个舵机来控制炮塔（摄像头）的方位和俯仰；
 3、另外，有4个开关（最多可以有8个），用于控制灯，音乐等设备； 
-4、GT24，低8位传输油门信号，8~15位传输方向信号，16~24位，各4位传输炮塔的方位和俯仰信号。最高8位传输开关信号
+4、GT24，低8位传输油门信号，8~15位传输方向信号，16~24位，传输炮塔的方位和俯仰信号， 主帧传输方位信号，副帧传输俯仰信号，最高7位传输开关信号，最高位为帧标记位，0为主帧，1为副帧（分两次传输油门和方向信号会导致控制灵敏度降低）
 
 接线方法：
   D3、D9接左侧驱动的控制；
@@ -81,26 +81,27 @@ int lowSpeed = 80;  //轮子最低速度，低于此值电机无法转动
 //轮子的转弯系数 数值越大，两轮的转速差距越大 2.1
 float turnIndex = 2.1;
 //方向的停止范围
-int turnUp = 130;
-int turnDown = 120;
+int turnUp = 160;
+int turnDown = 100;
 //方向的上、下限
-int fxUp = 205;
-int fxDown = 45;  
+int fxUp = 255;
+int fxDown = 0;  
 //油门的停止范围
-int forwardUP = 134;
-int forwardDown = 126;
+int forwardUP = 140;
+int forwardDown = 120;
 //油门上、下限
-int ymUp = 185;
-int ymDown = 80;
+int ymUp = 255;
+int ymDown = 0;
 //运行状态
 bool isForward = 1;
 //停机相关设置
 long lastStopTime = 0;
 long stopInterval = 1000; //1秒
-uint8_t ym,fx,con_value,ptValue,lastPtValue = 0;
+uint8_t fx,con_value,ptValue,lastPtValue = 0;
+uint8_t ym = 128;  //摇杆遥控开机停止
 uint32_t recValue = 0;
 int fwval,fyval,camval,lastFyval,lastFwval = 0;
-int servoErr = 1;
+int servoErr = 20;
 //接收数据联合体
 union transData
 { 
@@ -130,7 +131,7 @@ void setup()
   }
     Mirf.spi = &MirfHardwareSpi;
     Mirf.init();
-    Mirf.setRADDR((byte *)"RECVE"); //设置自己的地址（发送端地址），使用5个字符
+    Mirf.setRADDR((byte *)"RECVE2"); //设置自己的地址（发送端地址），使用5个字符
     Mirf.payload = 4;  // 设置传送位数，16位是2，32位是4；
     Mirf.channel = 90;              //设置所用信道
     Mirf.config();
@@ -170,19 +171,23 @@ void loop()
   if(Mirf.dataReady()) {  //当接收到程序，便从串口输出接收到的数据
   Mirf.getData((byte *) &recValue);
   thisUnion.newvalue = recValue;
-  //DEBUG("Recive Data: "); 
-  //DEBUGL(recValue,BIN); 
+  DEBUG("Recive Data: "); 
+  DEBUGL(recValue,BIN); 
   // 判断是否副帧，首位1为副帧
-  if(bitRead((recValue >>24) & 0xff ,7)){
-    fwval = thisUnion.buffer[0]; //副帧低8位为方位
-    fyval = thisUnion.buffer[1]; //副帧8~15为信仰
-
+  if(bitRead(recValue ,31)){
+    fyval = thisUnion.buffer[2]; //副帧16~24为俯仰
+    //DEBUG("Recive slave: "); 
+    //DEBUGL(fyval);
   }
   else{ //主帧数据处理
-    ym = thisUnion.buffer[0]; //主帧低8位为油门
-    fx = thisUnion.buffer[1]; //主帧8~15位为方向
+    fwval = thisUnion.buffer[2]; //主帧16~24为方位
+    //DEBUG("Recive master: "); 
+    //DEBUGL(fwval);
   }
+  ym = thisUnion.buffer[0]; //低8位为油门
+  fx = thisUnion.buffer[1]; //8~15位为方向
   con_value = thisUnion.buffer[3];
+
   //con_value = thisUnion.buffer[3];
   /*ptValue = (recValue >> 16) & 0xff;
   if(ptValue != lastPtValue){
@@ -220,9 +225,9 @@ void loop()
   DEBUG("con_value: "); 
   DEBUGL(con_value,BIN);  
   DEBUG("PaoTa_fw: ");
-  DEBUGL(fwval,BIN);
+  DEBUGL(fwval);
   DEBUG("PaoTa_fy: ");
-  DEBUGL(fyval,BIN);
+  DEBUGL(fyval);
  }
  delay(100); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
 //原地360度调头优先
@@ -237,10 +242,10 @@ else{
     stop();
   }
   // 前进控制
-  //if(ym < forwardDown and ym >= 0) { // 摇杆 前进
-  if(ym > forwardUP and ym <= ymUp) { // 前进 枪控
-    //leftSpeed = rightSpeed = map(ym, 0, forwardDown, 255, lowSpeed); //摇杆控制
-    leftSpeed = rightSpeed = map(ym, forwardUP, ymUp, lowSpeed, 255); //枪控
+  if(ym < forwardDown and ym >= 0) { // 摇杆 前进
+  //if(ym > forwardUP and ym <= ymUp) { // 前进 枪控
+    leftSpeed = rightSpeed = map(ym, 0, forwardDown, 255, lowSpeed); //摇杆控制
+    //leftSpeed = rightSpeed = map(ym, forwardUP, ymUp, lowSpeed, 255); //枪控
     //转弯控制
     if(fx > turnUp) { //如果方向偏左
       //leftSpeed = map(fx, turnDown, 0, rightSpeed/turnIndex, lowSpeed); //越往左，速度越慢  摇杆控制 
@@ -266,25 +271,25 @@ else{
     else{
       forward(leftSpeed, rightSpeed);
     }
-    DEBUG("forward...");
-    DEBUG("leftSpeed: ");
-    DEBUG(leftSpeed);
-    DEBUG(" rightSpeed: ");
-    DEBUGL(rightSpeed);
+    // DEBUG("forward...");
+    // DEBUG("leftSpeed: ");
+    // DEBUG(leftSpeed);
+    // DEBUG(" rightSpeed: ");
+    // DEBUGL(rightSpeed);
     //speedControl(leftSpeed, rightSpeed);
   }
   // 后退控制
-  //else if(ym >= forwardUP and ym < 256) { //摇杆 后退
-  else if(ym <= forwardDown and ym > ymDown) {
-    //leftSpeed = rightSpeed = map(ym, forwardUP, 255, ); //摇杆控制
-    leftSpeed = rightSpeed = map(ym, forwardDown, ymDown,  lowSpeed, 255);  //枪控
+  else if(ym >= forwardUP and ym < 256) { //摇杆 后退
+  //else if(ym <= forwardDown and ym > ymDown) {
+    leftSpeed = rightSpeed = map(ym, ymUp,forwardUP, 255, lowSpeed); //摇杆控制
+    //leftSpeed = rightSpeed = map(ym, forwardDown, ymDown,  lowSpeed, 255);  //枪控
     if(fx > turnUp) { //如果方向偏左
-      //leftSpeed = map(fx,turnDown,0,rightSpeed/turnIndex,lowSpeed); //越往左，速度越慢 //摇杆控制
-      leftSpeed = map(fx,turnUp,fxUp,rightSpeed/turnIndex,lowSpeed); //越往左，速度越慢 //枪控
+      leftSpeed = map(fx,turnDown,0,rightSpeed/turnIndex,lowSpeed); //越往左，速度越慢 //摇杆控制
+      //leftSpeed = map(fx,turnUp,fxUp,rightSpeed/turnIndex,lowSpeed); //越往左，速度越慢 //枪控
     }
     else if(fx <= turnDown){ //否则右转
-      //rightSpeed = map(fx, turnUp, 255, leftSpeed/turnIndex, lowSpeed); //越往左，速度越慢  //摇杆控制
-      rightSpeed = map(fx, turnDown, fxDown, leftSpeed/turnIndex, lowSpeed); //越往左，速度越慢 //枪控
+      rightSpeed = map(fx, turnUp, 255, leftSpeed/turnIndex, lowSpeed); //越往左，速度越慢  //摇杆控制
+      //rightSpeed = map(fx, turnDown, fxDown, leftSpeed/turnIndex, lowSpeed); //越往左，速度越慢 //枪控
     }
     else{
       ;;
@@ -299,11 +304,11 @@ else{
     else{
       backward(leftSpeed, rightSpeed);
     }
-    DEBUG("backward...");
-    DEBUG("leftSpeed: ");
-    DEBUG(leftSpeed);
-    DEBUG(" rightSpeed: ");
-    DEBUGL(rightSpeed);
+    // DEBUG("backward...");
+    // DEBUG("leftSpeed: ");
+    // DEBUG(leftSpeed);
+    // DEBUG(" rightSpeed: ");
+    // DEBUGL(rightSpeed);
     //speedControl(leftSpeed, rightSpeed);
   }
   else{
@@ -317,27 +322,27 @@ else{
   }
   // 控制值处理
   //pcf.digitalReadByte();
-  pcf.digitalWriteByte(con_value<<1); //移位去除掉标记位，实际7位开关可用，遥控器用了5个
+  pcf.digitalWriteByte(con_value); //移位去除掉标记位，实际7位开关可用，遥控器用了5个
   //炮台控制 低4位为方位，高4位为俯仰
   //方位控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
   //fwval = ptValue & 0x0f;
   if(abs(fwval - lastFwval) >= servoErr){
-    DEBUG("paota FW: ");
-    DEBUGL(fwval);
+    // DEBUG("paota FW: ");
+    // DEBUGL(fwval);
     lastFwval = fwval;
-    fwval = map(fwval,0,255,160,10);  //160,10为舵机的可转动范围，根据需要调整；
-    fwservo.write(fwval);
+    //fwval = map(fwval,0,255,160,10);  //160,10为舵机的可转动范围，根据需要调整；
+    fwservo.write(map(fwval,0,255,10,160));
   }
 
   //俯仰控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
   //fyval = (ptValue>>4) & 0x0f;
 
   if(abs(fyval - lastFyval) >= servoErr){
-    DEBUG("paota FY: ");
-    DEBUGL(fyval);
+    // DEBUG("paota FY: ");
+    // DEBUGL(fyval);
     lastFyval = fyval;
-    fyval = map(fyval,0,255,90,135);
-    fyservo.write(fyval);
+    //fyval = map(fyval,0,255,90,135);
+    fyservo.write(map(fyval,0,255,90,135));
     //利用俯仰值调整灯的数量
     int ledNumber = map(fyval,0,15,1,strip.numPixels());
     //colorWipe(strip.Color(255,0,0), 0, ledNumber);
