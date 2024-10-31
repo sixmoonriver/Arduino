@@ -81,17 +81,17 @@ int lowSpeed = 80;  //轮子最低速度，低于此值电机无法转动
 //轮子的转弯系数 数值越大，两轮的转速差距越大 2.1
 float turnIndex = 2.1;
 //方向的停止范围
-int turnUp = 130;
+int turnUp = 140;
 int turnDown = 120;
 //方向的上、下限
 int fxUp = 205;
 int fxDown = 45;  
 //油门的停止范围
-int forwardUP = 134;
-int forwardDown = 126;
+int forwardUP = 140;
+int forwardDown = 120;
 //油门上、下限
-int ymUp = 185;
-int ymDown = 80;
+int ymUp = 250;
+int ymDown = 10;
 //运行状态
 bool isForward = 1;
 //停机相关设置
