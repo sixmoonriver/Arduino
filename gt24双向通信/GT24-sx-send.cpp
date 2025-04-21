@@ -12,9 +12,9 @@
   左Y电位器中点接模拟IO A0；
   右X电位器中点接模块IO A2；
   右Y电位器中点接模块IO A3；
-  电压检测脚接   A4；
-  key2旋钮输入   A5；
-  指示灯接D6； 
+  显示屏SDA   A4；
+  显示屏SCL   A5；
+
 
   
   NR24L01接线：
@@ -41,6 +41,20 @@
 #include <Mirf.h>
 #include <nRF24L01.h>
 #include <MirfHardwareSpiDriver.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+#define OLED_RESET 4
+
+
+#define NUMFLAKES 10
+#define XPOS 0
+#define YPOS 1
+#define DELTAY 2
+
+#define LOGO16_GLCD_HEIGHT 16 
+#define LOGO16_GLCD_WIDTH  16 
 
 #define __DEBUG__
 
@@ -62,16 +76,20 @@
 uint8_t convert[5]={0};
 uint8_t cam_valueX,cam_valueY,last_cam_valueX,last_cam_valueY,camValue= 0;
 uint16_t xSourceValue,ySourceValue,zSourceValue,camSourceValueX,camSourceValueY=0;
-uint8_t x_value,y_value,z_value,last_zvalue,last_xvalue,last_yvalue,con_value,last_convalue,last_camValue=0;
+uint8_t recBatVol,recCurrent,recSensorState1,recSensorState2,x_value,y_value,z_value,last_zvalue,last_xvalue,last_yvalue,con_value,last_convalue,last_camValue=0;
 uint32_t trans_value, temp_value= 0;
+uint32_t recValue = 0;
 union transData
 {
    long newvalue;
    byte buffer[4];
 };
 
-transData thisUnion;
+transData sendUnion;
+transData recUnion;
 //Serial.println(thisUnion.newvalue, HEX);
+
+Adafruit_SSD1306 display(OLED_RESET);
 
 bool ISmaster = true;  //主副帧
 int xpin = A0;  // 方向输入脚模拟A0
@@ -102,9 +120,9 @@ void setup()
 {
   Mirf.spi = &MirfHardwareSpi;
   Mirf.init();
-  Mirf.setRADDR((byte *)"SENDE2"); //设置自己的地址（发送端地址），使用5个字符
+  Mirf.setRADDR((byte *)"SENDE"); //设置自己的地址（发送端地址），使用5个字符
   Mirf.payload = 4;     //设置传送位数，每通道使用8位；低8位是油门、次8位是方向，再高位是功能开关。
-  Mirf.channel = 80;              //设置所用信道
+  Mirf.channel = 90;              //设置所用信道
   Mirf.config();
   Serial.begin(115200);
      // Read and print RF_SETUP 用于检测是否初始化正常；
@@ -123,12 +141,36 @@ void setup()
   pinMode(exLed, OUTPUT);
   digitalWrite(exLed, LOW); //指示灯默认开
 }
+//显示屏
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
+  // init done
+    // Show image buffer on the display hardware.
+  // Since the buffer is intialized with an Adafruit splashscreen
+  // internally, this will display the splashscreen.
+  display.display();
+  delay(2000);
+
+  // Clear the buffer.
+  display.clearDisplay();
+  // text display tests
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(0,0);
+  display.println("Hello, world!");
+  display.setTextColor(BLACK, WHITE); // 'inverted' text
+  display.println(3.141592);
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.print("0x"); display.println(0xDEADBEEF, HEX);
+  display.display();
+  delay(2000);
+  display.clearDisplay();
 void loop()
 {
-  Mirf.setTADDR((byte *)"RECVE2");           //设置接收端地址
+  Mirf.setTADDR((byte *)"RECVE");           //设置接收端地址
   //读取摇杆的数值
   //电池电压检查，低于阈值就闪烁1秒为周期
-  if(analogRead(volDect) <= lowPower){
+  /*if(analogRead(volDect) <= lowPower){
     //指示灯闪烁
     if(millis()-lastLed >= 1000){
       digitalWrite(exLed, !ledState);
@@ -137,7 +179,7 @@ void loop()
   }
   else{
     digitalWrite(exLed, HIGH);
-  }
+  }*/
   xSourceValue = analogRead(xpin);  //读取摇杆输入的数值
   x_value = map(xSourceValue,0,710,0,255); //将模拟量的10位值转为8位值；
   ySourceValue = analogRead(ypin);
@@ -201,32 +243,22 @@ void loop()
   //| con_value != last_convalue
   {
     //发送的数据组装
-    //trans_value = 0;
     //主帧数据处理
     if(ISmaster){
       bitWrite(con_value,7,0); //写入帧标记位
-      thisUnion.buffer[2] = cam_valueX;
-      // thisUnion.buffer[2] = z_value;
-      // thisUnion.buffer[3] = con_value;
+      sendUnion.buffer[2] = cam_valueX;
     }
     //副帧
     else{
       bitWrite(con_value,7,1); //写入帧标记位
-      // slaveUnion.buffer[0] = cam_valueX;
-      // slaveUnion.buffer[1] = cam_valueY;
-      thisUnion.buffer[2] = cam_valueY;
-      // slaveUnion.buffer[3] = con_value;
+      sendUnion.buffer[2] = cam_valueY;
     }
-    thisUnion.buffer[0] = y_value;
-    thisUnion.buffer[1] = x_value;
-    thisUnion.buffer[3] = con_value;
+    sendUnion.buffer[0] = y_value;
+    sendUnion.buffer[1] = x_value;
+    sendUnion.buffer[3] = con_value;
     ISmaster = !ISmaster;
-    // thisUnion.buffer[0] = y_value;
-    // thisUnion.buffer[1] = x_value;
-    // thisUnion.buffer[2] = camValue;
-    // thisUnion.buffer[3] = con_value; 
     //发送数据并打印
-    Mirf.send((byte *)&thisUnion.newvalue);     //发送指令，组合后的数据
+    Mirf.send((byte *)&sendUnion.newvalue);     //发送指令，组合后的数据
     while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环 
       last_xvalue = x_value;   //last数据更新
       last_yvalue = y_value;
@@ -235,10 +267,10 @@ void loop()
       last_zvalue = z_value;
       last_convalue = con_value;
       
-      // DEBUG("xSourceValue: ");
-      // DEBUGL(xSourceValue);
-      // DEBUG("ySourceValue: ");
-      // DEBUGL(ySourceValue);
+      DEBUG("xSourceValue: ");
+      DEBUGL(xSourceValue);
+      DEBUG("ySourceValue: ");
+      DEBUGL(ySourceValue);
       DEBUG("x_value: ");
       DEBUGL(x_value);
       DEBUG("y_value: ");
@@ -252,7 +284,26 @@ void loop()
       DEBUG("con_value: ");
       DEBUGL(con_value,BIN);
       DEBUG("trans_value: ");
-      DEBUGL(thisUnion.newvalue,BIN);
+      DEBUGL(sendUnion.newvalue,BIN);
   }
-  delay(100);
+  delay(50);
+  // 查看接收数据
+  if(Mirf.dataReady()) {  //当接收到程序，便从串口输出接收到的数据
+    Mirf.getData((byte *) &recUnion.newvalue);
+    DEBUG("Recive Data: "); 
+    DEBUGL(recUnion.newvalue,BIN); 
+    // 接收数据的定义
+    // 最低8位为电池电压，次8位为电流，第3、4个低8位为状态传感器
+    recBatVol = recUnion.buffer[0];
+    //fx = thisUnion.buffer[1];
+    recCurrent = recUnion.buffer[1];
+    recSensorState1 = recUnion.buffer[2];
+    recSensorState2 = recUnion.buffer[3];
+    DEBUG("recCurrent = ");
+    DEBUG(recUnion.buffer[1]);
+    DEBUG(",");
+    DEBUG("recBatVol = ");
+    DEBUGL(recUnion.buffer[0]);
+ }
+ delay(50); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出}
 }
