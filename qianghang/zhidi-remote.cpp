@@ -338,11 +338,16 @@ void loop()
     display.setTextColor(WHITE);
     display.setCursor(0,0);
     // 电压计算公式：接收的值/255*5V得到采样值，再根据分压比（由接收机采样电路决定，上91K，下33K为0.266129），得到实际的电压
-    display.print("batterry: "); display.print(float(recBatVol)/255*5/0.266129); display.println("v");
-    display.print("recCurrent: "); display.print(float(recCurrent)); display.println("A");
-    display.print("leftspeed: "); display.println(recSensorState1); 
-    display.print("rightspeed: "); display.println(recSensorState2); 
+    // display.print("batterry: "); display.print(float(recBatVol)/255*5/0.266129); display.println("v");
+    // display.print("recCurrent: "); display.print(float(recCurrent)); display.println("A");
+    // display.print("leftspeed: "); display.println(recSensorState1); 
+    // display.print("rightspeed: "); display.println(recSensorState2); 
+    display.print("esc1: "); display.println(recUnion.buffer[0]);
+    display.print("esc2: "); display.println(recUnion.buffer[1]);
+    display.print("esc3: "); display.println(recUnion.buffer[2]);
+    display.print("esc4: "); display.println(recUnion.buffer[3]);
     display.display();
+
  }
  delay(50); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出}
 }

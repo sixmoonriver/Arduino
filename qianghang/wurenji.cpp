@@ -26,7 +26,7 @@
   D10----- 3通道；油门
   D11----- 4通道；方位
   
-  A0------ 电池电压检测
+  A0------ 电池电压检测 下拉27K，上拉20K
 
 */
 /////////////////////////////////
@@ -261,8 +261,9 @@ void setup(){
   //12.6V equals 1023 analogRead(0).
   //1260 / 1023 = 1.2317.
   //The variable battery_voltage holds 1050 if the battery voltage is 10.5V.
+  // battery_voltage = (analogRead(0) + 65) * 1.2317;
+
   battery_voltage = (analogRead(0) + 65) * 1.2317;
-  
   //遥控相关：
     Mirf.spi = &MirfHardwareSpi;
     Mirf.init();
@@ -442,6 +443,21 @@ void loop(){
     if(timer_channel_2 <= esc_loop_timer)PORTD &= B11011111;                //Set digital output 5 to low if the time is expired. 电机2PWM到了就把D5设为低电平
     if(timer_channel_3 <= esc_loop_timer)PORTD &= B10111111;                //Set digital output 6 to low if the time is expired. 电机3PWM到了就把D6设为低电平
     if(timer_channel_4 <= esc_loop_timer)PORTD &= B01111111;                //Set digital output 7 to low if the time is expired. 电机4PWM到了就把D7设为低电平
+  }
+  //发送数据返回
+  Mirf.setTADDR((byte *)"SENDE");           //设置接收端地址
+  if(millis() - lastreport > reportTime) {
+    lastreport = millis();
+    int batVol = analogRead(A1);
+    int current = analogRead(A0);
+    sendUnion.buffer[0] = map(esc_1,1000,2000,0,255);
+    sendUnion.buffer[1] = map(esc_2,1000,2000,0,255);
+    sendUnion.buffer[2] = map(esc_3,1000,2000,0,255);;
+    sendUnion.buffer[3] = map(esc_4,1000,2000,0,255);;
+    //发送数据并打印
+    Mirf.send((byte *)&sendUnion.newvalue);     //发送指令，组合后的数据
+    while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环 
+    delay(50);
   }
 }
 
