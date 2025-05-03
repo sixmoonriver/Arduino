@@ -50,7 +50,7 @@ int xpin = A0;  // 方向输入脚模拟A0
 int ypin = A1;  // 油门输入脚模拟A1
 int camControlX = A2; // 方向输入脚模拟A2
 int camControlY = A3; // 方向输入脚模拟A3
-int volDect = A4; // 电压检测；
+int volDect = A6; // 电压检测；
 int lowPower = 706; //电压告警阈值
 // 3S电池告警电压3.6V，电池总电压为10.8V，检测处电压3.45V（4700/（10000上拉电阻+4700下拉电阻）* 10.8），对应读取值为707
 //开关引脚定义
