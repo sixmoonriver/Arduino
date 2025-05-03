@@ -12,7 +12,9 @@
   方向电位器中点接模拟IO A0；
   方位电位器中点接模块IO A2；
   俯仰电位器中点接模块IO A3；
-  电压检测原CPU24脚接   A4；
+  oled SDA A4;
+  oled SCL A5;
+  电压检测原CPU24脚接   A6；
   指示灯接D6； 
   
   NR24L01接线：
@@ -32,10 +34,53 @@
 #include <Mirf.h>
 #include <nRF24L01.h>
 #include <MirfHardwareSpiDriver.h>
+#include <Adafruit_SSD1306.h>
+#define OLED_RESET 4
+#define NUMFLAKES 10
+#define XPOS 0
+#define YPOS 1
+#define DELTAY 2
+
+#define LOGO16_GLCD_HEIGHT 16 
+#define LOGO16_GLCD_WIDTH  16 
+// static const unsigned char PROGMEM logo16_glcd_bmp[] =
+// { B00000000, B11000000,
+//   B00000001, B11000000,
+//   B00000001, B11000000,
+//   B00000011, B11100000,
+//   B11110011, B11100000,
+//   B11111110, B11111000,
+//   B01111110, B11111111,
+//   B00110011, B10011111,
+//   B00011111, B11111100,
+//   B00001101, B01110000,
+//   B00011011, B10100000,
+//   B00111111, B11100000,
+//   B00111111, B11110000,
+//   B01111100, B11110000,
+//   B01110000, B01110000,
+
+#define __DEBUG__
+
+#ifdef __DEBUG__
+#define DEBUG(...) Serial.print(__VA_ARGS__)
+#define DEBUGL(...) Serial.println(__VA_ARGS__)
+//#define DEBUG(...) Serial.println(__VA_ARGS__); \
+                   Serial.print(" @ [SRC]:      "); \
+                   Serial.println(__FILE__); \
+                   Serial.print(" @ [LINE]:     "); \
+                   Serial.println(__LINE__); \
+                   Serial.print(" @ [FUNCTION]: "); \
+                   Serial.println(__func__); 
+#else
+#define DEBUG(...)
+#define DEBUGL(...)
+#endif
+
 uint8_t convert[5]={0};
 uint8_t cam_valueX,cam_valueY,camValue= 0;
 uint16_t xSourceValue,ySourceValue,camSourceValueX,camSourceValueY=0;
-uint8_t x_value,y_value,last_xvalue,last_yvalue,con_value,last_convalue,last_camValue=0;
+uint8_t recBatVol,recCurrent,recSensorState1,recSensorState2,x_value,y_value,last_xvalue,last_yvalue,con_value,last_convalue,last_camValue=0;
 uint32_t trans_value, temp_value= 0;
 union transData
 {
@@ -43,8 +88,9 @@ union transData
    byte buffer[4];
 };
 
-transData thisUnion;
-//Serial.println(thisUnion.newvalue, HEX);
+transData sendUnion;
+transData recUnion;
+//Serial.println(sendUnion.newvalue, HEX);
 
 int xpin = A0;  // 方向输入脚模拟A0
 int ypin = A1;  // 油门输入脚模拟A1
@@ -150,27 +196,52 @@ void loop()
   {
   //发送的数据组装
 	//trans_value = 0;
-  thisUnion.buffer[0] = y_value;
-  thisUnion.buffer[1] = x_value;
-  thisUnion.buffer[2] = camValue;
-  thisUnion.buffer[3] = con_value; 
+  sendUnion.buffer[0] = y_value;
+  sendUnion.buffer[1] = x_value;
+  sendUnion.buffer[2] = camValue;
+  sendUnion.buffer[3] = con_value; 
   //发送数据并打印
-	Mirf.send((byte *)&thisUnion.newvalue);                //发送指令，组合后的数据，低8位为油门数据，高8位为方向数据
+	Mirf.send((byte *)&sendUnion.newvalue);                //发送指令，组合后的数据，低8位为油门数据，高8位为方向数据
     while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环
     last_xvalue = x_value;   //last数据更新
     last_yvalue = y_value;
     last_camValue = camValue;
     last_convalue = con_value;
-    Serial.print("x_value: ");
-    Serial.println(x_value);
-    Serial.print("y_value: ");
-    Serial.println(y_value);
-	  Serial.print("cam_value: ");
-    Serial.println(camValue);
-    Serial.print("con_value: ");
-    Serial.println(con_value,BIN);
-    Serial.print("trans_value: ");
-    Serial.println(thisUnion.newvalue,BIN);
+    DEBUG("x_value: ");
+    DEBUGL(x_value);
+    DEBUG("y_value: ");
+    DEBUGL(y_value);
+	  DEBUG("cam_value: ");
+    DEBUGL(camValue);
+    DEBUG("con_value: ");
+    DEBUGL(con_value,BIN);
+    DEBUG("trans_value: ");
+    DEBUGL(sendUnion.newvalue,BIN);
   }
-    delay(100);
+    delay(10);
+    if(Mirf.dataReady()) {  //当接收到程序，便从串口输出接收到的数据
+    Mirf.getData((byte *) &recUnion.newvalue);
+    DEBUG("Recive Data: "); 
+    DEBUGL(recUnion.newvalue,BIN); 
+    // 接收数据的定义
+    // 最低8位为电池电压，次8位为电流，第3、4个低8位为状态传感器
+    recBatVol = recUnion.buffer[0];
+    recCurrent = recUnion.buffer[1];
+    recSensorState1 = recUnion.buffer[2];
+    recSensorState2 = recUnion.buffer[3];
+    DEBUG("recCurrent = ");
+    DEBUG(recUnion.buffer[1]);
+    DEBUG(",");
+    DEBUG("recBatVol = ");
+    DEBUGL(recUnion.buffer[0]);
+    display.clearDisplay();
+    // text display tests
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0,0);
+    // 电压计算公式：接收的值/255*5V得到采样值，再根据分压比（由接收机采样电路决定，上91K，下33K为0.266129），得到实际的电压
+    display.print("batterry: "); display.print(float(recBatVol)/255*5/0.266129); display.println("v");
+    display.print("recCurrent: "); display.print(float(recCurrent)); display.println("A");
+    display.display();
+    }
 }
