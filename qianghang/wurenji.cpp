@@ -91,7 +91,7 @@ float gyro_z_cal=0.0;
 //遥控器部分相关的变量
 // 数据上报间隔
 long lastreport = 0; //记录上报时间
-long reportTime = 500; //2秒上报一次
+long reportTime = 500; //0.5秒上报一次
 uint8_t ym,fx,con_value,ptValue,lastPtValue = 0;
 uint32_t recValue = 0;
 int fwval,fyval,camval,lastFyval,lastFwval = 0;
@@ -256,14 +256,15 @@ void setup(){
   start = 0;                                                   //Set start back to 0.
   
   //Load the battery voltage to the battery_voltage variable.
-  //65 is the voltage compensation for the diode.
+  //65 is the voltage compensation for the diode. //65是补偿二极管
   //12.6V equals ~5V @ Analog 0.
   //12.6V equals 1023 analogRead(0).
-  //1260 / 1023 = 1.2317.
+  //1260 / 1023 = 1.2317.  
+  //2S供电，通过46K/50.5K电阻分压后，8.4V满电最高为899，为了不改变原先的取值范围，系数要变为：1260/899=1.4016
   //The variable battery_voltage holds 1050 if the battery voltage is 10.5V.
   // battery_voltage = (analogRead(0) + 65) * 1.2317;
 
-  battery_voltage = (analogRead(0) + 65) * 1.2317;
+  battery_voltage = (analogRead(0) + 65) * 1.4016;
   //遥控相关：
     Mirf.spi = &MirfHardwareSpi;
     Mirf.init();
@@ -313,15 +314,15 @@ void loop(){
   con_value = recUnion.buffer[3];
   //ptValue = (recValue >> 16) & 0xff;
   ptValue = recUnion.buffer[2];
-  DEBUG("fx = ");
-  DEBUG(recUnion.buffer[1]);
-  DEBUG(",");
-  DEBUG("ym = ");
-  DEBUGL(recUnion.buffer[0]);
-  DEBUG("con_value: "); 
-  DEBUGL(recUnion.buffer[3],BIN);  
-  DEBUG("PaoTa: ");
-  DEBUGL(recUnion.buffer[2],BIN);
+  // DEBUG("fx = ");
+  // DEBUG(recUnion.buffer[1]);
+  // DEBUG(",");
+  // DEBUG("ym = ");
+  // DEBUGL(recUnion.buffer[0]);
+  // DEBUG("con_value: "); 
+  // DEBUGL(recUnion.buffer[3],BIN);  
+  // DEBUG("PaoTa: ");
+  // DEBUGL(recUnion.buffer[2],BIN);
  }
  delay(10); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
   receiver_input_channel_3 = ym*8;
@@ -346,7 +347,7 @@ void loop(){
     pid_last_yaw_d_error = 0;
   }
   //Stopping the motors: throttle low and yaw right. 停止：油门低，方位到右边
-  if(start == 2 && receiver_input_channel_3 < 100 && receiver_input_channel_4 > 1600)start = 0;
+  if(start == 2 && receiver_input_channel_3 < 200 && receiver_input_channel_4 > 1600)start = 0;
   
   //The PID set point in degrees per second is determined by the roll receiver input.
   //In the case of deviding by 3 the max roll rate is aprox 164 degrees per second ( (500-8)/3 = 164d/s ).
@@ -382,8 +383,9 @@ void loop(){
   
   //The battery voltage is needed for compensation.
   //A complementary filter is used to reduce noise. 互补滤波器
-  //0.09853 = 0.08 * 1.2317.
-  battery_voltage = battery_voltage * 0.92 + (analogRead(0) + 65) * 0.09853;  //这一段看不懂
+  //0.09853 = 0.08 * 1.2317. //1260 / 1023 = 1.2317.  电压/采样值=比例  电压=采样值*比例
+  //2S 0.112128 = 0.08*.1.4016
+  battery_voltage = battery_voltage * 0.92 + (analogRead(0) + 65) * 0.112128;  //用上一次电压值的92%，加上本次读取值的8%做为最终的电压值
   
   //Turn on the led if battery voltage is to low.
   //if(battery_voltage < 1050 && battery_voltage > 600)digitalWrite(13, HIGH);
@@ -452,12 +454,16 @@ void loop(){
     int current = analogRead(A0);
     sendUnion.buffer[0] = map(esc_1,1000,2000,0,255);
     sendUnion.buffer[1] = map(esc_2,1000,2000,0,255);
-    sendUnion.buffer[2] = map(esc_3,1000,2000,0,255);;
-    sendUnion.buffer[3] = map(esc_4,1000,2000,0,255);;
+    sendUnion.buffer[2] = map(esc_3,1000,2000,0,255);
+    sendUnion.buffer[3] = map(esc_4,1000,2000,0,255);
     //发送数据并打印
     Mirf.send((byte *)&sendUnion.newvalue);     //发送指令，组合后的数据
     while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环 
-    delay(50);
+    DEBUG("esc_1: ");DEBUG(esc_1);
+    DEBUG(" esc_2: ");DEBUG(esc_2);
+    DEBUG(" esc_3: ");DEBUG(esc_3);
+    DEBUG(" esc_4: ");DEBUGL(esc_4);
+    delay(10);
   }
 }
 
