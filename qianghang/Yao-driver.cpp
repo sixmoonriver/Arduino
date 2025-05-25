@@ -46,7 +46,7 @@
 #include <SoftwareSerial.h>
 #include <Adafruit_NeoPixel.h>
 
-//#define __DEBUG__
+#define __DEBUG__
 
 #ifdef __DEBUG__
 #define DEBUG(...) Serial.print(__VA_ARGS__)
@@ -382,13 +382,9 @@ void loop()
     //colorWipe(strip.Color(255,0,0), 0, ledNumber);
   }
   //电池电压检查，高于阈值显示绿色，低于阈值显示红色
-  if(analogRead(A1) < lowBattery){
+  if(analogRead(A0) < lowBattery){
     //持续时间大于1.5S,电池低电压
     if(millis()-lastLowtime >= 1500){
-      for(int i=0; i<NUM_LEDS; i++) {
-        strip.setPixelColor(i, strip.Color(255, 0, 0));
-      }
-      strip.show();
       delay(100);
       DEBUGL("Battery is change Low");        
     }
@@ -401,12 +397,16 @@ void loop()
   Mirf.setTADDR((byte *)"SENDE");           //设置接收端地址
   if(millis() - lastreport > reportTime) {
     lastreport = millis();
-    int batVol = analogRead(A1);
-    int current = analogRead(A0);
+    int batVol = analogRead(A0);
+    int current = analogRead(A1);
     sendUnion.buffer[0] = map(batVol,0,1024,0,255);
     sendUnion.buffer[1] = map(current,0,1024,0,255);
-    sendUnion.buffer[2] = 0;
+    sendUnion.buffer[2] = pcfIn.digitalReadByte();
     sendUnion.buffer[3] = 0;
+    DEBUG("batvol: ");
+    DEBUGL(batVol);
+    DEBUG("DInput: ");
+    DEBUGL(sendUnion.buffer[2]);
     //发送数据并打印
     Mirf.send((byte *)&sendUnion.newvalue);     //发送指令，组合后的数据
     while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环 
