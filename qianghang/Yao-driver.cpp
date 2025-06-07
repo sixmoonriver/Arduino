@@ -345,11 +345,27 @@ void loop()
   } 
   // 控制值处理
   //pcfOut.digitalReadByte();
-  pcfOut.digitalWriteByte(con_value);
+  //pcfOut.digitalWriteByte(con_value);
   //炮台控制 低4位为方位，高4位为俯仰
   //方位控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
-  //fwval = ptValue & 0x0f;
-  
+  fwval = ptValue & 0x0f;
+  //DEBUGL(fwval);
+  // 如果方位偏左，电机反转，高4位为控制开关
+  DEBUG("outValue: ");
+  uint8_t  outValue;
+  if(fwval<7){
+    outValue = (con_value<<4)&0xF0 | 0x5; 
+    pcfOut.digitalWriteByte(outValue);//5为0101
+  }
+  else if(fwval>9){
+    outValue = (con_value<<4)&0xF0 | 0xA ;
+    pcfOut.digitalWriteByte(outValue); //10为1010
+  }
+  else{
+    outValue=(con_value<<4)&0xF0;
+    pcfOut.digitalWriteByte(outValue);
+  }
+  DEBUGL(outValue);
   /*if(fwval != lastFwval){
     //DEBUG("paota FW: ");
     //DEBUGL(fwval);
