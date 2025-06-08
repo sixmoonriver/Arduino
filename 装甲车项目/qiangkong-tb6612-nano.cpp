@@ -94,6 +94,10 @@ int ymUp = 185;
 int ymDown = 80;
 //运行状态
 bool isForward = 1;
+//炮塔俯仰位置
+int pos1=0;
+int pos1_up = 768;
+int pos1_down = 256;
 //停机相关设置
 long lastStopTime = 0;
 long stopInterval = 1000; //1秒
@@ -309,7 +313,7 @@ else{
   }
   // 控制值处理
   //pcf.digitalReadByte();
-  pcf.digitalWriteByte(con_value<<4);
+  //pcf.digitalWriteByte(con_value<<4);
   //炮台控制 低4位为方位，高4位为俯仰
   //方位控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
   fwval = ptValue & 0x0f;
@@ -329,12 +333,46 @@ else{
     DEBUGL(fyval);
     lastFyval = fyval;
     fyval = map(fyval,0,15,90,135);
-    fyservo.write(fyval);
+    //fyservo.write(fyval);
     //利用俯仰值调整灯的数量
     int ledNumber = map(fyval,0,15,1,strip.numPixels());
     //colorWipe(strip.Color(255,0,0), 0, ledNumber);
   }
+  pos1 = analogRead(A2);
+  uint8_t  outValue;
+  DEBUG("pos1: ");
+  DEBUGL(pos1);
+  // 在正常的范围内才允许对电机进行操作
+  if(pos1<pos1_up and pos1>pos1_down){
+    if(fyval<7){ //左转控制
+      outValue = (con_value<<4)&0xF0 | 0x1; 
+      pcf.digitalWriteByte(outValue);//1为0001
+      DEBUG("pos1 turn left");
+    }
+    else if(fyval>9){ //右转控制
+      outValue = (con_value<<4)&0xF0 | 0x2 ;
+      pcf.digitalWriteByte(outValue); //2为0010
+      DEBUG("pos1 turn right");
+    }
+    else{ //不转只写入控制值
+      outValue = (con_value<<4)&0xF0;
+      pcf.digitalWriteByte(outValue);
+      DEBUG("pos1 control");
+    }
+  }
+  else { //如果因为惯性或其它原因稍微超出，需要纠正
+    if(pos1 <= pos1_down){
+      outValue = (con_value<<4)&0xF0 | 0x2; 
+      pcf.digitalWriteByte(outValue);//2为0010
+      DEBUG("pos1 adj right");
+    }
+    else if(pos1 >pos1_up){
+      outValue = (con_value<<4)&0xF0 | 0x1 ;
+      pcf.digitalWriteByte(outValue); //1为0001
+      DEBUG("pos1 adj left");
+    }
 
+  }
 
 }
 
