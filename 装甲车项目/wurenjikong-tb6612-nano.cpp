@@ -65,7 +65,7 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(8, PIN, NEO_GRB + NEO_KHZ800);
 
 Adafruit_PCF8574 pcf;
 Servo fwservo; // 建立方位舵机对象
-Servo fyservo; // 创建俯仰舵机对象
+//Servo fyservo; // 创建俯仰舵机对象
 //SoftwareSerial S2(A2, A3); //A2为接收，A3为发送；
 
 //定义驱动板控制引脚
@@ -83,8 +83,8 @@ int lowSpeed = 80;  //轮子最低速度，低于此值电机无法转动
 //轮子的转弯系数 数值越大，两轮的转速差距越大 2.1
 float turnIndex = 2.1;
 //方向的停止范围
-int turnUp = 130;
-int turnDown = 120;
+int turnUp = 140;
+int turnDown = 110;
 //方向的上、下限
 int fxUp = 255;
 int fxDown = 0;  
@@ -96,6 +96,11 @@ int ymUp = 185;
 int ymDown = 80;
 //运行状态
 bool isForward = 1;
+//炮塔俯仰位置
+int pos1=0;
+int pos1_up = 768;
+int pos1_down = 256;
+uint8_t  outValue;
 //停机相关设置
 long lastStopTime = 0;
 long stopInterval = 1000; //1秒
@@ -152,8 +157,8 @@ void setup()
   */
   fwservo.attach(A3,600,2000);
   fwservo.write(90);//回到中间位置
-  fyservo.attach(A0,600,2000);
-  fyservo.write(90);//回到中间位置
+  //fyservo.attach(A0,600,2000);
+  //fyservo.write(90);//回到中间位置
   //控制引脚设置
   pinMode(left1, OUTPUT);
   //pinMode(left2, OUTPUT);
@@ -235,7 +240,7 @@ void loop()
 //原地360度调头优先
 if(bitRead(con_value, 0) == 1) {
   DEBUG("YuanDiReturn!");
-  leftSpeed = rightSpeed = map(ym, forwardUP, ymUp, lowSpeed, 255);
+  leftSpeed = rightSpeed = map(ym, forwardDown, 0, lowSpeed, 255);
   yuanDiReturn(leftSpeed, rightSpeed);
 }
 else{
@@ -324,7 +329,7 @@ else{
   }
   // 控制值处理
   //pcf.digitalReadByte();
-  pcf.digitalWriteByte(con_value); //移位去除掉标记位，实际7位开关可用，遥控器用了5个
+  //pcf.digitalWriteByte(con_value); //移位去除掉标记位，实际7位开关可用，遥控器用了5个
   //炮台控制 低4位为方位，高4位为俯仰
   //方位控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
   //fwval = ptValue & 0x0f;
@@ -344,12 +349,36 @@ else{
     // DEBUGL(fyval);
     lastFyval = fyval;
     //fyval = map(fyval,0,255,90,135);
-    fyservo.write(map(fyval,0,255,90,135));
+    //fyservo.write(map(fyval,0,255,90,135));
     //利用俯仰值调整灯的数量
-    int ledNumber = map(fyval,0,15,1,strip.numPixels());
+    //int ledNumber = map(fyval,0,15,1,strip.numPixels());
     //colorWipe(strip.Color(255,0,0), 0, ledNumber);
   }
-
+  pos1 = analogRead(A2);
+  
+ // DEBUG("pos1: ");
+  //DEBUGL(pos1);
+  // 在正常的范围内才允许对电机进行操作
+  //if(pos1<pos1_up and pos1>pos1_down){
+  if(fyval<110){ //左转控制
+    if(pos1 >= pos1_down){
+      outValue = (con_value)&0xFF | 0x20; 
+      pcf.digitalWriteByte(outValue);//1为0001
+      DEBUG("pos1 turn left");
+    } 
+  }
+  else if(fyval>140){ //右转控制
+    if(pos1 <= pos1_up){
+      outValue = (con_value)&0xFF | 0x40 ;
+      pcf.digitalWriteByte(outValue); //2为0010
+      DEBUG("pos1 turn right");
+    }
+  }
+  else{ //不转只写入控制值
+    outValue = con_value&0xFF;
+    pcf.digitalWriteByte(outValue);
+    //DEBUG("pos1 control");
+  }
 
 }
 
