@@ -59,8 +59,8 @@ unsigned long timer_channel_1, timer_channel_2, timer_channel_3, timer_channel_4
 unsigned long timer_1, timer_2, timer_3, timer_4, current_time;
 int cal_int, start;
 unsigned long loop_timer;
-double gyro_pitch, gyro_roll, gyro_yaw;
-double gyro_roll_cal, gyro_pitch_cal, gyro_yaw_cal;
+double gyro_pitch, gyro_roll, gyro_yaw,acc_pitch,acc_roll,acc_yaw;
+double gyro_roll_cal, gyro_pitch_cal, gyro_yaw_cal,acc_pitch_cal,acc_roll_cal,acc_yaw_cal;
 byte highByte, lowByte;
 
 float pid_error_temp;
@@ -72,7 +72,7 @@ float                 y_gyro = 0;
 float                 z_gyro = 0;
 
 float gyro[3];
-float gyroScaleFactor = radians(1000.0 / 32768.0);  //角度转为弧度
+float gyroScaleFactor = radians(1000.0 / 32768.0);  //函数为角度转为弧度，但是这个因数是啥？
 //float gyroScaleFactor = (0.0174532 / 16.4);
 
 
@@ -80,14 +80,18 @@ uint16_t sensors_detected = 0x00;
 
 uint8_t gyroSamples = 0;
 
-int16_t gyroRaw[3];
-float gyroSum[3];
+int16_t gyroRaw[3],accRaw[3];
+float gyroSum[3],accSum[3];
 
 int16_t gyro_offset[3];
-float gyro_x_cal=0.0;
-float gyro_y_cal=0.0;
-float gyro_z_cal=0.0;
-
+float gyro_x_cal=0.0; //静态校准值
+float gyro_y_cal=0.0; //静态校准值
+float gyro_z_cal=0.0; //静态校准值
+//照葫芦画瓢
+int16_t acc_offset[3];
+float acc_x_cal=0.0;  //静态校准值
+float acc_y_cal=0.0;  //静态校准值
+float acc_z_cal=0.0;  //静态校准值
 //遥控器部分相关的变量
 // 数据上报间隔
 long lastreport = 0; //记录上报时间
@@ -168,7 +172,7 @@ transData recUnion,sendUnion;
 #define BIT_INT_STATUS_DATA     0x01
 
 #define pi 3.14159 
-#define RAD_TO_DEG 57.295779513082320876798154814105
+#define RAD_TO_DEG 57.295779513082320876798154814105  //  这个数为180除以pi的结果，180对应的弧度为pi,即单位弧度对应的角度
 
 /////////////////////////////////
 //Setup routine
@@ -213,6 +217,13 @@ void setup(){
     gyro_y_cal += gyro_pitch;
     gyro_z_cal += gyro_yaw;
      
+    acc_signalen();
+    acc_roll = (accRaw[XAXIS]*gyroScaleFactor)*RAD_TO_DEG;
+    acc_pitch = (accRaw[YAXIS]*gyroScaleFactor)*RAD_TO_DEG;
+
+    acc_x_cal += acc_roll;
+    acc_y_cal += acc_pitch;
+    
     if(cal_int%10 == 0)Serial.print(".");           //Print a dot every 100 readings
      
     //  digitalWrite(13, LOW);
@@ -223,14 +234,18 @@ void setup(){
    //Now that we have 2000 measures, we need to devide by 2000 to get the average gyro offset
   Serial.println(" done!");                          //2000 measures are done!
    
-   gyro_x_cal = gyro_x_cal/100.0;
+   gyro_x_cal = gyro_x_cal/100.0; 
    gyro_y_cal = gyro_y_cal/100.0;
    gyro_z_cal = gyro_z_cal/100.0;  
    
+   acc_x_cal = acc_x_cal/100.0;
+   acc_y_cal = acc_y_cal/100.0;
 
     Serial.print("gyro_x_cal:");Serial.print(gyro_x_cal);Serial.print("\t");
     Serial.print("gyro_y_cal:");Serial.print(gyro_y_cal);Serial.print("\t");
     Serial.print("gyro_z_cal:");Serial.print(gyro_z_cal);Serial.print("\t");    
+    Serial.print("acc_x_cal:");Serial.print(acc_x_cal);Serial.print("\t"); 
+    Serial.print("acc_y_cal:");Serial.print(acc_y_cal);Serial.print("\t"); 
     delay(200);
 
   
@@ -287,19 +302,28 @@ void setup(){
 void loop(){
   //Let's get the current gyro data and scale it to degrees per second for the pid calculations.
   gyro_signalen();
+  acc_signalen();
   
-    gyro_roll = (gyroRaw[XAXIS]*gyroScaleFactor)*RAD_TO_DEG-gyro_x_cal;
-    gyro_pitch = ((gyroRaw[YAXIS]*gyroScaleFactor)*RAD_TO_DEG-gyro_y_cal)*-1;
-    gyro_yaw = ((gyroRaw[ZAXIS]*gyroScaleFactor)*RAD_TO_DEG-gyro_z_cal)*-1;
-    
+    gyro_roll = (gyroRaw[XAXIS]*gyroScaleFactor)*RAD_TO_DEG-gyro_x_cal;  //横滚是绕X轴转，
+    gyro_pitch = ((gyroRaw[YAXIS]*gyroScaleFactor)*RAD_TO_DEG-gyro_y_cal)*-1; //俯仰是绕Y轴
+    gyro_yaw = ((gyroRaw[ZAXIS]*gyroScaleFactor)*RAD_TO_DEG-gyro_z_cal)*-1; //方位是绕Z轴
+    acc_roll = (accRaw[XAXIS]*gyroScaleFactor)*RAD_TO_DEG-acc_x_cal;
+    acc_pitch = ((accRaw[YAXIS]*gyroScaleFactor)*RAD_TO_DEG-acc_y_cal)*-1;
+
     gyro_roll_input = (gyro_roll_input * 0.8) + ((gyro_roll) * 0.2);            //Gyro pid input is deg/sec.
     gyro_pitch_input = (gyro_pitch_input * 0.8) + ((gyro_pitch) * 0.2);         //Gyro pid input is deg/sec.
     gyro_yaw_input = (gyro_yaw_input * 0.8) + ((gyro_yaw) * 0.2);               //Gyro pid input is deg/sec.
     
-            // Serial.print(gyro_roll_input);Serial.print("\t");
-            // Serial.print(gyro_pitch_input);Serial.print("\t");
-            // Serial.print(gyro_yaw_input);Serial.print("\t");  
-            // Serial.print("\n");  
+    Serial.print(" g_roll: "); Serial.print(gyro_roll_input);
+    Serial.print(" g_pitch: "); Serial.print(gyro_pitch_input);
+    Serial.print(" g_yaw: "); Serial.println(gyro_yaw_input);  
+    Serial.print(" a_roll: "); Serial.print(acc_roll);
+    Serial.print(" a_pitch: "); Serial.println(acc_pitch);
+
+
+    gyro_roll_input = gyro_roll_input*0.95238 + acc_roll*(1-0.95238);
+    gyro_pitch_input = gyro_pitch_input*0.95238 + acc_pitch*(1-0.95238);
+
 
   if(Mirf.dataReady()) {  //当接收到程序，便从串口输出接收到的数据
   Mirf.getData((byte *) &recValue);
@@ -325,18 +349,18 @@ void loop(){
   // DEBUGL(recUnion.buffer[2],BIN);
  }
  delay(10); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
-  receiver_input_channel_3 = ym*8;
-  receiver_input_channel_4 = fx*8;
-  receiver_input_channel_1 = con_value*8;
-  receiver_input_channel_2 = ptValue*8;
+  receiver_input_channel_3 = map(ym,0,255,1000,2000);
+  receiver_input_channel_4 = map(fx,0,255,1000,2000);
+  receiver_input_channel_1 = map(con_value,0,255,1000,2000);
+  receiver_input_channel_2 = map(ptValue,0,255,1000,2000);
 
   //三通道油门，四通道方位
   //For starting the motors: throttle low and yaw left (step 1). 启动密码，油门最低，方位偏左
-  if(receiver_input_channel_3 < 900 && receiver_input_channel_4 < 900)start = 1;
+  if(receiver_input_channel_3 < 1050 && receiver_input_channel_4 < 1150)start = 1;
   // if(receiver_input_channel_3 < 1050 && receiver_input_channel_4 < 1150)start = 1;
   //When yaw stick is back in the center position start the motors (step 2). 油门再次回到中心位置，方向移到右，进入启动状态2
   // if(start == 1 && receiver_input_channel_3 < 1050 && receiver_input_channel_4 > 1450){
-  if(start == 1 && receiver_input_channel_3 < 1080 && receiver_input_channel_4 > 1200){
+  if(start == 1 && receiver_input_channel_3 < 1050 && receiver_input_channel_4 > 1450){
     start = 2;
     //Reset the pid controllers for a bumpless start.
     pid_i_mem_roll = 0;
@@ -347,24 +371,24 @@ void loop(){
     pid_last_yaw_d_error = 0;
   }
   //Stopping the motors: throttle low and yaw right. 停止：油门低，方位到右边
-  if(start == 2 && receiver_input_channel_3 < 200 && receiver_input_channel_4 > 1600)start = 0;
+  if(start == 2 && receiver_input_channel_3 < 1050 && receiver_input_channel_4 > 1600)start = 0;
   
   //The PID set point in degrees per second is determined by the roll receiver input.
   //In the case of deviding by 3 the max roll rate is aprox 164 degrees per second ( (500-8)/3 = 164d/s ).
   pid_roll_setpoint = 0;
   //We need a little dead band of 16us for better results. //类似于副翼、升降、方向这种控制，通常情况下是回中的状态，只有超过这个死区，才进行控制，否则setpoint这个值置0。4.0不知道是啥意思？
   // if(receiver_input_channel_1 > 1510)pid_roll_setpoint = (receiver_input_channel_1 - 1510)/4.0; // 输入值减去上限1510除以4，这个应该是正值
-  if(receiver_input_channel_1 > 1200)pid_roll_setpoint = (receiver_input_channel_1 - 1200)/4.0; // 输入值减去上限1510除以4，这个应该是正值
+  if(receiver_input_channel_1 > 1510)pid_roll_setpoint = (receiver_input_channel_1 - 1510)/4.0; // 输入值减去上限1510除以4，这个应该是正值
   // else if(receiver_input_channel_1 < 1490)pid_roll_setpoint = (receiver_input_channel_1 - 1490)/4.0; //输入值减去下限1490除以4，这个应该是负值
-  else if(receiver_input_channel_1 < 1000)pid_roll_setpoint = (receiver_input_channel_1 - 1000)/4.0; //输入值减去下限1490除以4，这个应该是负值
+  else if(receiver_input_channel_1 < 1490)pid_roll_setpoint = (receiver_input_channel_1 - 1490)/4.0; //输入值减去下限1490除以4，这个应该是负值
   
   //The PID set point in degrees per second is determined by the pitch receiver input.
   //In the case of deviding by 3 the max pitch rate is aprox 164 degrees per second ( (500-8)/3 = 164d/s ).
   pid_pitch_setpoint = 0;
   //We need a little dead band of 16us for better results.
-  if(receiver_input_channel_2 > 1200)pid_pitch_setpoint = (receiver_input_channel_2 - 1200)/4.0;
+  if(receiver_input_channel_2 > 1510)pid_pitch_setpoint = (receiver_input_channel_2 - 1510)/4.0;
   // if(receiver_input_channel_2 > 1510)pid_pitch_setpoint = (receiver_input_channel_2 - 1510)/4.0;
-  else if(receiver_input_channel_2 < 1000)pid_pitch_setpoint = (receiver_input_channel_2 - 1000)/4.0;
+  else if(receiver_input_channel_2 < 1490)pid_pitch_setpoint = (receiver_input_channel_2 - 1490)/4.0;
   // else if(receiver_input_channel_2 < 1490)pid_pitch_setpoint = (receiver_input_channel_2 - 1490)/4.0;
   
   //The PID set point in degrees per second is determined by the yaw receiver input.
@@ -372,8 +396,8 @@ void loop(){
   pid_yaw_setpoint = 0;
   //We need a little dead band of 16us for better results.
   if(receiver_input_channel_3 > 1050){ //Do not yaw when turning off the motors.  如果电机没转，方位控制不动作
-    if(receiver_input_channel_4 > 1500)pid_yaw_setpoint = (receiver_input_channel_4 - 1500)/4.0;
-    else if(receiver_input_channel_4 < 1499)pid_yaw_setpoint = (receiver_input_channel_4 - 1499)/4.0;
+    if(receiver_input_channel_4 > 1510)pid_yaw_setpoint = (receiver_input_channel_4 - 1510)/4.0;
+    else if(receiver_input_channel_4 < 1490)pid_yaw_setpoint = (receiver_input_channel_4 - 1490)/4.0;
     // if(receiver_input_channel_3 > 1050){ //Do not yaw when turning off the motors.  如果电机没转，方位控制不动作
     // if(receiver_input_channel_4 > 1510)pid_yaw_setpoint = (receiver_input_channel_4 - 1510)/4.0;
     // else if(receiver_input_channel_4 < 1490)pid_yaw_setpoint = (receiver_input_channel_4 - 1490)/4.0;
@@ -536,7 +560,23 @@ void gyro_signalen()
     gyroRaw[ZAXIS] = ((Wire.read() << 8) | Wire.read());
  
 }
-
+/////////////////////////////////
+//Subroutine for reading the acc
+/////////////////////////////////
+void acc_signalen()
+{
+    Wire.beginTransmission(MPU6050_ADDRESS);
+    Wire.write(MPUREG_ACCEL_XOUT_H);
+    Wire.endTransmission();
+    
+    Wire.requestFrom(MPU6050_ADDRESS, 6);
+    while(Wire.available() < 6);                       //Wait until the 6 bytes are received
+    
+    accRaw[XAXIS] = ((Wire.read() << 8) | Wire.read());
+    accRaw[YAXIS] = ((Wire.read() << 8) | Wire.read());
+    accRaw[ZAXIS] = ((Wire.read() << 8) | Wire.read());
+ 
+}
 /////////////////////////////////
 //Subroutine for calculating pid outputs
 /////////////////////////////////
