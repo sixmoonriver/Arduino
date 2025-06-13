@@ -99,6 +99,11 @@ int ymDown = 82;
 int ymlimit = 255;
 //运行状态
 bool isForward = 1;
+//炮塔位置
+int pos1=0;
+int pos1_up = 135;
+int pos1_down = 85;
+int fyvalOut=110; //俯仰舵机中间位置
 //停机相关设置
 long lastStopTime = 0;
 long stopInterval = 1000; //1秒
@@ -387,11 +392,17 @@ void loop()
   fyval = (ptValue>>4) & 0x0f;
   //俯仰控制用于设置油门的PWM上限，防止电流过大，方便调试
   if(fyval != lastFyval){
+    if(fyval > 140){
+      if(fyvalOut < pos1_up) fyvalOut += 5;
+    }
+    else if(fyval < 110){
+      if(fyvalOut > pos1_down) fyvalOut -= 5;
+    }
     //DEBUG("paota FY: ");
     //DEBUGL(fyval);
     ymlimit = map(fyval,0,15,0,255);
     //fyval = map(fyval,0,15,90,135);
-    //fyservo.write(fyval);
+    fyservo.write(fyvalOut);
     lastFyval = fyval;
     //利用俯仰值调整灯的数量
     //int ledNumber = map(fyval,0,15,1,strip.numPixels());
