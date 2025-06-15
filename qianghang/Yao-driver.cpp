@@ -104,13 +104,16 @@ int pos1=0;
 int pos1_up = 135;
 int pos1_down = 85;
 int fyvalOut=110; //俯仰舵机中间位置
+// 定时执行变量
+long last50ms=0;
+long last200ms=0;
 //停机相关设置
 long lastStopTime = 0;
 long stopInterval = 1000; //1秒
 long servoResetTime = 0;
 uint8_t ym,fx,lastfx,con_value,ptValue,lastPtValue = 0;
 uint32_t recValue = 0;
-int fwval,fyval,camval,lastFyval,lastFwval = 0;
+int fwval,fyval,camval,lastFyval,lastFwval,lastFyOut= 0;
 //舵机的误差，防止舵机抖动
 int servoErr = 1;
 //电池电压检测：A1脚
@@ -159,7 +162,7 @@ void setup()
     Mirf.init();
     Mirf.setRADDR((byte *)"RECVE"); //设置自己的地址（发送端地址），使用5个字符
     Mirf.payload = 4;  // 设置传送位数，16位是2，32位是4；
-    Mirf.channel = 90;              //设置所用信道
+    Mirf.channel = 80;              //设置所用信道 无人机控80，枪控、致迪90
     Mirf.config();
 
    // Read and print RF_SETUP 无线模块初始化检查
@@ -178,8 +181,8 @@ void setup()
   */
 //   fwservo.attach(A3,600,2000);
 //   fwservo.write(90);//回到中间位置
-//   fyservo.attach(A0,600,2000);
-//   fyservo.write(90);//回到中间位置
+  fyservo.attach(3,600,2000);
+  fyservo.write(110);//回到中间位置
   //控制引脚设置
   pinMode(left1, OUTPUT);
   pinMode(left2, OUTPUT);
@@ -194,18 +197,23 @@ void setup()
 void loop()
 {
   if(Mirf.dataReady()) {  //当接收到程序，便从串口输出接收到的数据
-  Mirf.getData((byte *) &recUnion.newvalue);
-  //fx = (recValue & 0xff00) >> 8;
-  fx = recUnion.buffer[1];
-  //ym = recValue & 0xff;
-  ym = recUnion.buffer[0];
-  ptValue = recUnion.buffer[2];
-  //ptValue = (recValue >> 16) & 0xff;
-  if(ptValue != lastPtValue){
-    //S2.write(ptValue);
-    lastPtValue = ptValue;
+  Mirf.getData((byte *) &recValue);
+  recUnion.newvalue = recValue;
+  DEBUG("Recive Data: "); 
+  DEBUGL(recValue,BIN); 
+  // 判断是否副帧，首位1为副帧
+  if(bitRead(recValue ,31)){
+    fyval = recUnion.buffer[2]; //副帧16~24为俯仰
+    //DEBUG("Recive slave: "); 
+    //DEBUGL(fyval);
   }
-  //con_value = (recValue >> 24) & 0xff;
+  else{ //主帧数据处理
+    fwval = recUnion.buffer[2]; //主帧16~24为方位
+    //DEBUG("Recive master: "); 
+    //DEBUGL(fwval);
+  }
+  ym = recUnion.buffer[0]; //低8位为油门
+  fx = recUnion.buffer[1]; //8~15位为方向
   con_value = recUnion.buffer[3];
   //串口发送的数据依次为方向、油门、控制、炮台，按最高位到最低位是：控制、炮台、方向、油门
  /*
@@ -235,8 +243,10 @@ void loop()
   DEBUGL(ym);
   DEBUG("con_value: "); 
   DEBUGL(con_value,BIN);  
-  DEBUG("PaoTa: ");
-  DEBUGL(ptValue,BIN);
+  DEBUG("PaoTa_fw: ");
+  DEBUGL(fwval);
+  DEBUG("PaoTa_fy: ");
+  DEBUGL(fyval);
  }
  delay(10); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
   //有刷电机油门控制，控制器的中间位置，且距上一次停止时间间隔超过1s，电机停止且计时复位
@@ -289,11 +299,11 @@ void loop()
       delay(100);
     }
     forward(leftSpeed, rightSpeed);
-    DEBUG("forward...");
-    DEBUG("leftSpeed: ");
-    DEBUG(leftSpeed);
-    DEBUG(" rightSpeed: ");
-    DEBUGL(rightSpeed);
+    // DEBUG("forward...");
+    // DEBUG("leftSpeed: ");
+    // DEBUG(leftSpeed);
+    // DEBUG(" rightSpeed: ");
+    // DEBUGL(rightSpeed);
     //speedControl(leftSpeed, rightSpeed);
   }
   // 后退控制
@@ -337,11 +347,11 @@ void loop()
     else{
       backward(leftSpeed, rightSpeed);
     }
-    DEBUG("backward...");
-    DEBUG("leftSpeed: ");
-    DEBUG(leftSpeed);
-    DEBUG(" rightSpeed: ");
-    DEBUGL(rightSpeed);
+    // DEBUG("backward...");
+    // DEBUG("leftSpeed: ");
+    // DEBUG(leftSpeed);
+    // DEBUG(" rightSpeed: ");
+    // DEBUGL(rightSpeed);
     //speedControl(leftSpeed, rightSpeed);
   }
   //舵机定时回位，1000ms
@@ -356,7 +366,7 @@ void loop()
   fwval = ptValue & 0x0f;
   //DEBUGL(fwval);
   // 如果方位偏左，电机反转，高4位为控制开关
-  DEBUG("outValue: ");
+  // DEBUG("outValue: ");
   uint8_t  outValue;
   if(fwval<7){
     outValue = (con_value<<4)&0xF0 | 0x5; 
@@ -370,7 +380,7 @@ void loop()
     outValue=(con_value<<4)&0xF0;
     pcfOut.digitalWriteByte(outValue);
   }
-  DEBUGL(outValue);
+  // DEBUGL(outValue);
   /*if(fwval != lastFwval){
     //DEBUG("paota FW: ");
     //DEBUGL(fwval);
@@ -388,10 +398,11 @@ void loop()
     //fwservo.write(map(fwval,0,15,45,135));
   }*/
 
-  //俯仰控制 如果同上次的值对比，有变化，再操作舵机，避免每次对舵机进行操作。
-  fyval = (ptValue>>4) & 0x0f;
+  //俯仰控制 超过50ms再进行操作，再操作舵机，避免每次对舵机进行操作。
+  //fyval = (ptValue>>4) & 0x0f;
   //俯仰控制用于设置油门的PWM上限，防止电流过大，方便调试
-  if(fyval != lastFyval){
+  if((millis() - last50ms) > 50){
+    if(abs(fyval - lastFyval)>5){
     if(fyval > 140){
       if(fyvalOut < pos1_up) fyvalOut += 5;
     }
@@ -400,13 +411,20 @@ void loop()
     }
     //DEBUG("paota FY: ");
     //DEBUGL(fyval);
-    ymlimit = map(fyval,0,15,0,255);
+    //ymlimit = map(fyval,0,15,0,255);
     //fyval = map(fyval,0,15,90,135);
-    fyservo.write(fyvalOut);
+    DEBUG("fyvalOut: ");
+    DEBUGL(fyvalOut);
+    if(fyvalOut != lastFyOut){
+      fyservo.write(fyvalOut);
+      lastFyOut = fyvalOut;
+    }
     lastFyval = fyval;
+    last50ms=millis();
     //利用俯仰值调整灯的数量
     //int ledNumber = map(fyval,0,15,1,strip.numPixels());
     //colorWipe(strip.Color(255,0,0), 0, ledNumber);
+  }
   }
   //电池电压检查，高于阈值显示绿色，低于阈值显示红色
   if(analogRead(A0) < lowBattery){
