@@ -101,9 +101,9 @@ int ymlimit = 255;
 bool isForward = 1;
 //炮塔位置
 int pos1=0;
-int pos1_up = 135;
-int pos1_down = 85;
-int fyvalOut=110; //俯仰舵机中间位置
+int pos1_up = 180; //俯仰上限
+int pos1_down = 0; //俯仰下限
+int fyvalOut=0; //俯仰舵机中间位置
 // 定时执行变量
 long last50ms=0;
 long last200ms=0;
@@ -137,6 +137,7 @@ void backward(int speedL=128, int speedR=128);
 void speedControl(int speedL, int speedR);
 void stop();
 void yuanDiReturn(int speedL=90, int speedR=90);
+void fuyangProc(void);
 
 void setup()
 {
@@ -179,10 +180,10 @@ void setup()
   min(可选)：脉冲宽度，以微秒为单位，对应于舵机上的最小(0度)角度(默认为544)
   max(可选)：脉冲宽度，以微秒为单位，对应于舵机上的最大(180度)角度(默认为2400)
   */
-//   fwservo.attach(A3,600,2000);
+  fwservo.attach(9,600,2000);
 //   fwservo.write(90);//回到中间位置
-  fyservo.attach(3,600,2000);
-  fyservo.write(110);//回到中间位置
+  fyservo.attach(3);
+  fyservo.write(90);//回到中间位置
   //控制引脚设置
   pinMode(left1, OUTPUT);
   pinMode(left2, OUTPUT);
@@ -401,30 +402,32 @@ void loop()
   //俯仰控制 超过50ms再进行操作，再操作舵机，避免每次对舵机进行操作。
   //fyval = (ptValue>>4) & 0x0f;
   //俯仰控制用于设置油门的PWM上限，防止电流过大，方便调试
-  if((millis() - last50ms) > 50){
-    if(abs(fyval - lastFyval)>5){
-    if(fyval > 140){
-      if(fyvalOut < pos1_up) fyvalOut += 5;
-    }
-    else if(fyval < 110){
-      if(fyvalOut > pos1_down) fyvalOut -= 5;
-    }
-    //DEBUG("paota FY: ");
-    //DEBUGL(fyval);
-    //ymlimit = map(fyval,0,15,0,255);
-    //fyval = map(fyval,0,15,90,135);
-    DEBUG("fyvalOut: ");
-    DEBUGL(fyvalOut);
-    if(fyvalOut != lastFyOut){
-      fyservo.write(fyvalOut);
-      lastFyOut = fyvalOut;
-    }
-    lastFyval = fyval;
-    last50ms=millis();
-    //利用俯仰值调整灯的数量
-    //int ledNumber = map(fyval,0,15,1,strip.numPixels());
-    //colorWipe(strip.Color(255,0,0), 0, ledNumber);
-  }
+  if((millis() - last50ms) > 100){ // 定时50ms执行函数
+    last50ms = millis();
+    fuyangProc();
+  //   if(abs(fyval - lastFyval)>5){
+  //   if(fyval > 140){
+  //     if(fyvalOut < pos1_up) fyvalOut += 5;
+  //   }
+  //   else if(fyval < 110){
+  //     if(fyvalOut > pos1_down) fyvalOut -= 5;
+  //   }
+  //   //DEBUG("paota FY: ");
+  //   //DEBUGL(fyval);
+  //   //ymlimit = map(fyval,0,15,0,255);
+  //   //fyval = map(fyval,0,15,90,135);
+  //   DEBUG("fyvalOut: ");
+  //   DEBUGL(fyvalOut);
+  //   if(fyvalOut != lastFyOut){
+  //     fyservo.write(fyvalOut);
+  //     lastFyOut = fyvalOut;
+  //   }
+  //   lastFyval = fyval;
+  //   last50ms=millis();
+  //   //利用俯仰值调整灯的数量
+  //   //int ledNumber = map(fyval,0,15,1,strip.numPixels());
+  //   //colorWipe(strip.Color(255,0,0), 0, ledNumber);
+  // }
   }
   //电池电压检查，高于阈值显示绿色，低于阈值显示红色
   if(analogRead(A0) < lowBattery){
@@ -499,4 +502,22 @@ void yuanDiReturn(int speedL, int speedR){
   digitalWrite(right2, HIGH);  
   analogWrite(leftPwm, speedL);
   analogWrite(rightPwm, speedR);
+}
+//俯仰控制
+void fuyangProc(void){
+  if((fyval > 140) || (fyval < 110)){ //遥控没有在死区就执行下一步
+    if((fyval > 140) &&  (fyvalOut < pos1_up)){ //遥控向上且没有到上限就递增
+      fyvalOut+=5; 
+    }
+    else if((fyval < 110) && (fyvalOut > pos1_down)){ //遥控向下且没有到下限就递减
+      fyvalOut-=5;
+    }
+    if(fyvalOut != lastFyOut) {
+      fyservo.write(fyvalOut);
+      lastFyOut = fyvalOut;
+      DEBUG("fyvalOut: ");
+      DEBUGL(fyvalOut);
+    }
+    fyval = 120; //容易卡住，执行完成人工复位
+  }
 }
