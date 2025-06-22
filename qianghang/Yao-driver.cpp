@@ -66,6 +66,9 @@
 Adafruit_PCF8574 pcfOut,pcfIn;
 Servo fwservo; // 建立方位舵机对象
 Servo fyservo; // 创建俯仰舵机对象
+servo servo1;
+servo servo2;
+servo servo3;
 //SoftwareSerial S2(A2, A3); //A2为接收，A3为发送；
 
 //定义驱动板控制引脚
@@ -183,6 +186,8 @@ void setup()
   fwservo.attach(9,600,2000);
 //   fwservo.write(90);//回到中间位置
   fyservo.attach(3);
+  servo1.attach(5);
+  servo1.attach(6);
   fyservo.write(90);//回到中间位置
   //控制引脚设置
   pinMode(left1, OUTPUT);
@@ -204,7 +209,8 @@ void loop()
   DEBUGL(recValue,BIN); 
   // 判断是否副帧，首位1为副帧
   if(bitRead(recValue ,31)){
-    fyval = recUnion.buffer[2]; //副帧16~24为俯仰
+    ;;
+    //fyval = recUnion.buffer[2]; //副帧16~24为俯仰
     //DEBUG("Recive slave: "); 
     //DEBUGL(fyval);
   }
@@ -250,6 +256,7 @@ void loop()
   DEBUGL(fyval);
  }
  delay(10); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
+ fyval=analogRead(A2);
   //有刷电机油门控制，控制器的中间位置，且距上一次停止时间间隔超过1s，电机停止且计时复位
   if(ym >= forwardDown and ym <= forwardUP) {
     if(millis()-lastStopTime >= stopInterval){
@@ -404,7 +411,9 @@ void loop()
   //俯仰控制用于设置油门的PWM上限，防止电流过大，方便调试
   if((millis() - last50ms) > 100){ // 定时50ms执行函数
     last50ms = millis();
-    fuyangProc();
+    fyservo.write(map(fyval,0,1024,0,180));
+    //fuyangProc();
+    
   //   if(abs(fyval - lastFyval)>5){
   //   if(fyval > 140){
   //     if(fyvalOut < pos1_up) fyvalOut += 5;
