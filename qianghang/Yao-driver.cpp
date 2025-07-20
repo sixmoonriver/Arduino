@@ -66,9 +66,8 @@
 Adafruit_PCF8574 pcfOut,pcfIn;
 Servo fwservo; // 建立方位舵机对象
 Servo fyservo; // 创建俯仰舵机对象
-servo servo1;
-servo servo2;
-servo servo3;
+// Servo servo1;
+// Servo servo2;
 //SoftwareSerial S2(A2, A3); //A2为接收，A3为发送；
 
 //定义驱动板控制引脚
@@ -104,7 +103,7 @@ int ymlimit = 255;
 bool isForward = 1;
 //炮塔位置
 int pos1=0;
-int pos1_up = 180; //俯仰上限
+int pos1_up = 45; //俯仰上限
 int pos1_down = 0; //俯仰下限
 int fyvalOut=0; //俯仰舵机中间位置
 // 定时执行变量
@@ -186,9 +185,9 @@ void setup()
   fwservo.attach(9,600,2000);
 //   fwservo.write(90);//回到中间位置
   fyservo.attach(3);
-  servo1.attach(5);
-  servo1.attach(6);
-  fyservo.write(90);//回到中间位置
+  // servo1.attach(5);
+  // servo2.attach(6);
+  fyservo.write(0);//回到中间位置
   //控制引脚设置
   pinMode(left1, OUTPUT);
   pinMode(left2, OUTPUT);
@@ -205,12 +204,11 @@ void loop()
   if(Mirf.dataReady()) {  //当接收到程序，便从串口输出接收到的数据
   Mirf.getData((byte *) &recValue);
   recUnion.newvalue = recValue;
-  DEBUG("Recive Data: "); 
-  DEBUGL(recValue,BIN); 
+  // DEBUG("Recive Data: "); 
+  // DEBUGL(recValue,BIN); 
   // 判断是否副帧，首位1为副帧
   if(bitRead(recValue ,31)){
-    ;;
-    //fyval = recUnion.buffer[2]; //副帧16~24为俯仰
+    fyval = recUnion.buffer[2]; //副帧16~24为俯仰
     //DEBUG("Recive slave: "); 
     //DEBUGL(fyval);
   }
@@ -243,20 +241,20 @@ void loop()
   DEBUG("PaoTa: ");
   DEBUGL(recUnion.buffer[2],BIN);
  */
-  DEBUG("fx = ");
-  DEBUG(fx);
-  DEBUG(",");
-  DEBUG("ym = ");
-  DEBUGL(ym);
-  DEBUG("con_value: "); 
-  DEBUGL(con_value,BIN);  
-  DEBUG("PaoTa_fw: ");
-  DEBUGL(fwval);
+  // DEBUG("fx = ");
+  // DEBUG(fx);
+  // DEBUG(",");
+  // DEBUG("ym = ");
+  // DEBUGL(ym);
+  // DEBUG("con_value: "); 
+  // DEBUGL(con_value,BIN);  
+  // DEBUG("PaoTa_fw: ");
+  // DEBUGL(fwval);
   DEBUG("PaoTa_fy: ");
   DEBUGL(fyval);
  }
  delay(10); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
- fyval=analogRead(A2);
+ //fyval=analogRead(A2);
   //有刷电机油门控制，控制器的中间位置，且距上一次停止时间间隔超过1s，电机停止且计时复位
   if(ym >= forwardDown and ym <= forwardUP) {
     if(millis()-lastStopTime >= stopInterval){
@@ -409,11 +407,31 @@ void loop()
   //俯仰控制 超过50ms再进行操作，再操作舵机，避免每次对舵机进行操作。
   //fyval = (ptValue>>4) & 0x0f;
   //俯仰控制用于设置油门的PWM上限，防止电流过大，方便调试
-  if((millis() - last50ms) > 100){ // 定时50ms执行函数
+  if((millis() - last50ms) > 300){ // 定时50ms执行函数
     last50ms = millis();
-    fyservo.write(map(fyval,0,1024,0,180));
+    // fyservo.write(map(fyval,0,1024,0,180));
+    // fwservo.write(map(fyval,0,1024,0,180));
+    // servo1.write(map(fyval,0,1024,0,180));
+    // servo2.write(map(fyval,0,1024,0,180));
     //fuyangProc();
-    
+    if((fyval > 140) || (fyval < 110)){ //遥控没有在死区就执行下一步
+      if((fyval > 140) &&  (fyvalOut < pos1_up)){ //遥控向上且没有到上限就递增
+      fyvalOut+=5; 
+      }
+    else if((fyval < 110) && (fyvalOut > pos1_down)){ //遥控向下且没有到下限就递减
+      fyvalOut-=5;
+      }
+    if(fyvalOut != lastFyOut) {
+      fyservo.write(fyvalOut);
+      delay(5);
+      lastFyOut = fyvalOut;
+      DEBUG("fyvalOut: ");
+      DEBUGL(fyvalOut);
+    }
+    // fyval = 120; //容易卡住，执行完成人工复位
+    // DEBUG("proc running");
+  }
+
   //   if(abs(fyval - lastFyval)>5){
   //   if(fyval > 140){
   //     if(fyvalOut < pos1_up) fyvalOut += 5;
@@ -460,10 +478,10 @@ void loop()
     sendUnion.buffer[1] = map(current,0,1024,0,255);
     sendUnion.buffer[2] = pcfIn.digitalReadByte();
     sendUnion.buffer[3] = 0;
-    DEBUG("batvol: ");
-    DEBUGL(batVol);
-    DEBUG("DInput: ");
-    DEBUGL(sendUnion.buffer[2]);
+    // DEBUG("batvol: ");
+    // DEBUGL(batVol);
+    // DEBUG("DInput: ");
+    // DEBUGL(sendUnion.buffer[2]);
     //发送数据并打印
     Mirf.send((byte *)&sendUnion.newvalue);     //发送指令，组合后的数据
     while(Mirf.isSending()) delay(1);          //直到发送成功，退出循环 
@@ -523,10 +541,12 @@ void fuyangProc(void){
     }
     if(fyvalOut != lastFyOut) {
       fyservo.write(fyvalOut);
+      delay(5);
       lastFyOut = fyvalOut;
       DEBUG("fyvalOut: ");
       DEBUGL(fyvalOut);
     }
-    fyval = 120; //容易卡住，执行完成人工复位
+    // fyval = 120; //容易卡住，执行完成人工复位
+    // DEBUG("proc running");
   }
 }

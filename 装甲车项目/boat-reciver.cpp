@@ -70,7 +70,9 @@ Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_LEDS, PIN, NEO_GRB + NEO_KHZ800)
 Adafruit_PCF8574 pcf;
 Servo fwservo; // 建立方位舵机对象
 Servo fyservo; // 创建俯仰舵机对象
-//SoftwareSerial S2(A2, A3); //A2为接收，A3为发送；
+// 使用双向无刷电调版本
+Servo leftmotor; // 建立左侧电机对象
+Servo rightmotor; // 建立右侧电机对象
 
 //定义驱动板控制引脚
 int left1 = 3;
@@ -178,14 +180,20 @@ void setup()
   fwservo.write(90);//回到中间位置
   fyservo.attach(A0,600,2000);
   fyservo.write(90);//回到中间位置
+  // 左，右侧无刷电机初始化
+  leftmotor.attach(3);
+  rightmotor.attach(9);
+  leftmotor.write(0);
+  rightmotor.write(0); 
+
   //控制引脚设置
-  pinMode(left1, OUTPUT);
-  pinMode(left2, OUTPUT);
-  pinMode(right1, OUTPUT);
-  pinMode(right2, OUTPUT);
-  pinMode(leftPwm, OUTPUT);
-  pinMode(rightPwm, OUTPUT);
-  stop();
+  // pinMode(left1, OUTPUT);
+  // pinMode(left2, OUTPUT);
+  // pinMode(right1, OUTPUT);
+  // pinMode(right2, OUTPUT);
+  // pinMode(leftPwm, OUTPUT);
+  // pinMode(rightPwm, OUTPUT);
+  // stop();
   delay(200);
 
 }
@@ -243,6 +251,18 @@ void loop()
  }
   delay(50); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
   //有刷电机油门控制，控制器的中间位置，且距上一次停止时间间隔超过1s，电机停止且计时复位
+  leftSpeed = rightSpeed = map(ym, forwardUP, ymUp, lowSpeed, ymlimit);
+  if(fx > turnUp) { //如果方向偏左
+    //leftSpeed = map(fx, turnDown, 0, rightSpeed/turnIndex, lowSpeed); //越往左，速度越慢  摇杆控制 
+    
+  }
+  else if(fx <= turnDown) { //否则右转
+    rightSpeed = map(fx, turnDown, fxDown, leftSpeed/turnIndex, lowSpeed); //越往右，速度越慢
+    //rightSpeed = map(fx, turnUp, 255, lowSpeed, leftSpeed/turnIndex); //越往右，速度越慢 摇杆控制
+    fwservo.write(map(fx,turnDown, fxDown,90,40));
+    servoResetTime = millis();
+  }
+
   if(ym >= forwardDown and ym <= forwardUP) {
     if(millis()-lastStopTime >= stopInterval){
       stop();

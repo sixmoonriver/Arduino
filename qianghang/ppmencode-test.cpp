@@ -39,7 +39,7 @@ transData recUnion,sendUnion;
 
 int fw,fy,ym,fx=50;
 uint16_t recValue = 0;
-int channel1,channel2,channel3,channel4,channel5,con_value=0;
+int channelValue,channel1,channel2,channel3,channel4,channel5,con_value=0;
 long lastprint=0;
 
 void setup() {
@@ -63,31 +63,35 @@ void setup() {
 void loop() {
   if(Mirf.dataReady()) {  //当接收到程序，便从串口输出接收到的数据
   Mirf.getData((byte *) &recValue);
-  recUnion.newvalue = recValue;
-  // DEBUG("Recive Data: "); 
+    // DEBUG("Recive Data: "); 
   // DEBUGL(recValue,BIN); 
   // 提取第11~14位（共4位）的值
   unsigned int frameType = (recValue >> 10) & 0xF;  // 右移11位，取低4位
-  
+  channelValue = recValue & 0x3ff; //取出channelValue
   // 根据提取的值执行对应分支
   switch (frameType) {
       case ROLLFRAM:
-          channel1 = recValue & 0x3FF;
+          if((channelValue >=0) and (channelValue<=1023)) channel1 = channelValue;
           break;
       case PITCHFRAM:
-          channel2 = recValue & 0x3FF;
+          if((channelValue >=0) and (channelValue<=1023)) channel2 = channelValue;
+          //if((recValue >=0) and (recValue<=1023)) channel2 = recValue & 0x3FF;
           break;
       case THROTFRAM:
-          channel3 = recValue & 0x3FF;
+          //if((recValue >=0) and (recValue<=1023)) channel3 = recValue & 0x3FF;
+          if((channelValue >=0) and (channelValue<=1023)) channel3 = channelValue;
           break;
       case YAWFRAM:
-          channel4 =  recValue & 0x3FF;
+          // if((recValue >=0) and (recValue<=1023)) channel4 =  recValue & 0x3FF;
+          if((channelValue >=0) and (channelValue<=1023)) channel4 = channelValue;
           break;
       case JTFRAM:
-          channel5 = recValue & 0x3FF;
+          // if((recValue >=0) and (recValue<=1023)) channel5 = recValue & 0x3FF;
+          if((channelValue >=0) and (channelValue<=1023)) channel5 = channelValue;
           break;
       case CTRFRAM:
-          con_value = recValue & 0x3FF;
+          // if((recValue >=0) and (recValue<=1023)) con_value = recValue & 0x3FF;
+          if((channelValue >=0) and (channelValue<=1023)) con_value = channelValue;
           break;
       // case 0:
       //     break;
@@ -97,7 +101,7 @@ void loop() {
           break;
   }
   //0.5秒打印一次，
-  if(millis()-lastprint >= 1000){
+  if(millis()-lastprint >= 500){
     lastprint = millis();
     DEBUG("channel1 = ");
     DEBUGL(channel1);
@@ -128,14 +132,14 @@ void loop() {
          ppmEncoder.setChannelPercent(i,55);
       }
       else{
-         ppmEncoder.setChannel(i,0);
+         ppmEncoder.setChannelPercent(i,0);
       }
   }
   // ppmEncoder.setChannel(5,map(bitRead(con_value,0),0,1,500,2500));
   // ppmEncoder.setChannel(6,map(bitRead(con_value,1),0,1,500,2500));
   // ppmEncoder.setChannel(7,map(bitRead(con_value,2),0,1,500,2500));
  }
- delay(2); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
+ delay(1); //这个延迟要放到这里，否则程序错乱，一直会有垃圾数据输出
   // fw=analogRead(A1);
   // fy=analogRead(A2);
   // ym=analogRead(A3);
