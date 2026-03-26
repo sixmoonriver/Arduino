@@ -1,4 +1,3 @@
-
 /*
 制作原理：
 
@@ -44,6 +43,16 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+
+// 模拟引脚定义（解决IDE识别问题）
+#ifndef A0
+#define A0 14
+#define A1 15
+#define A2 16
+#define A3 17
+#define A4 18
+#define A5 19
+#endif
 
 #define OLED_RESET 4
 
@@ -140,11 +149,11 @@ void setup()
   pinMode(zpin,INPUT);
   pinMode(exLed, OUTPUT);
   digitalWrite(exLed, LOW); //指示灯默认开
-}
-//显示屏
+  
+  //显示屏初始化
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // initialize with the I2C addr 0x3C (for the 128x32)
   // init done
-    // Show image buffer on the display hardware.
+  // Show image buffer on the display hardware.
   // Since the buffer is intialized with an Adafruit splashscreen
   // internally, this will display the splashscreen.
   display.display();
@@ -165,6 +174,8 @@ void setup()
   display.display();
   delay(2000);
   display.clearDisplay();
+}
+
 void loop()
 {
   Mirf.setTADDR((byte *)"RECVE");           //设置接收端地址
@@ -239,7 +250,7 @@ void loop()
   Serial.println();*/
  
   //数据有变化才发送，防止电位器抖动导致的值变化
-  if(abs(z_value - last_zvalue) > 5 |abs(x_value - last_xvalue) > 5 | abs(y_value - last_yvalue) > 5 | abs(cam_valueX - last_cam_valueX) > 5 | abs(cam_valueY - last_cam_valueY) > 5 | con_value != last_convalue)
+  if(abs(z_value - last_zvalue) > 5 || abs(x_value - last_xvalue) > 5 || abs(y_value - last_yvalue) > 5 || abs(cam_valueX - last_cam_valueX) > 5 || abs(cam_valueY - last_cam_valueY) > 5 || con_value != last_convalue)
   //| con_value != last_convalue
   {
     //发送的数据组装

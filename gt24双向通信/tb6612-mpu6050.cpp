@@ -39,6 +39,18 @@
 #include <SoftwareSerial.h>
 #include <Adafruit_NeoPixel.h>
 
+// 模拟引脚定义（解决IDE识别问题）
+#ifndef A0
+#define A0 14
+#define A1 15
+#define A2 16
+#define A3 17
+#define A4 18
+#define A5 19
+#define A6 20
+#define A7 21
+#endif
+
 // Ws2812 引脚
 #define PIN 4
 #define __DEBUG__
@@ -442,7 +454,7 @@ else{
   //else if(ym >= forwardUP and ym < 256) { //摇杆 后退
   else if(ym < forwardDown and ym >= ymDown) {
     //左侧电机速度根据油门大小决定
-    leftSpeed = rightSpeed = (ym, ymDown, forwardDown, 255, lowSpeed); //枪控
+    leftSpeed = rightSpeed = map(ym, ymDown, forwardDown, 255, lowSpeed); //枪控
     pid_i_mem_roll = 0;
     pid_last_roll_d_error = 0;
     pid_i_mem_pitch = 0;

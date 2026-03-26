@@ -39,6 +39,18 @@
 #include <SoftwareSerial.h>
 #include <Adafruit_NeoPixel.h>
 
+// 模拟引脚定义（解决IDE识别问题）
+#ifndef A0
+#define A0 14
+#define A1 15
+#define A2 16
+#define A3 17
+#define A4 18
+#define A5 19
+#define A6 20
+#define A7 21
+#endif
+
 // Ws2812 引脚和数量
 #define PIN 4
 #define NUM_LEDS 29 // LED数量
@@ -324,7 +336,33 @@ void loop()
         servoResetTime = millis();
       }
   }
-//如果是前进状态，状态翻转，延迟后再换方向
+  // 后退控制
+  else if(ym < forwardDown and ym > ymDown) {
+    leftSpeed = rightSpeed = map(ym, forwardDown, ymDown, lowSpeed, ymlimit);
+    //根据开关第3位确定是否使用差速转弯，高电平不使用
+    if(bitRead(con_value,2)){
+      if(fx > turnUp) { //如果方向偏左
+        fwservo.write(map(fx,turnUp,fxUp,90,40));
+        servoResetTime = millis();
+      }
+      else if(fx <= turnDown){ //否则右转
+        fwservo.write(map(fx,turnDown, fxDown,90,145));
+        servoResetTime = millis();
+      }
+    }
+    else{
+      if(fx > turnUp) { //如果方向偏左
+        leftSpeed = map(fx,turnUp,fxUp,rightSpeed/turnIndex,lowSpeed);
+        fwservo.write(map(fx,turnUp,fxUp,90,40));
+        servoResetTime = millis();
+      }
+      else if(fx <= turnDown){ //否则右转
+        rightSpeed = map(fx, turnDown, fxDown, leftSpeed/turnIndex, lowSpeed);
+        fwservo.write(map(fx,turnDown, fxDown,90,145));
+        servoResetTime = millis();
+      }
+    }
+    //如果是前进状态，状态翻转，延迟后再换方向
     if(isForward){  
       isForward = !isForward;
       stop();

@@ -141,6 +141,8 @@ void stop();
 void yuanDiReturn(int speedL=90, int speedR=90);
 void fuyangProc(void);
 
+uint8_t address[] = {0xE7, 0xE7, 0xE7, 0xE7, 0xE7};
+
 void setup()
 {
   Serial.begin(115200);
@@ -163,16 +165,29 @@ void setup()
   }
     Mirf.spi = &MirfHardwareSpi;
     Mirf.init();
-    Mirf.setRADDR((byte *)"RECVE"); //设置自己的地址（发送端地址），使用5个字符
+    Mirf.setTADDR((byte *)"SENDE"); //设置自己的地址（发送端地址），使用5个字符
+    Mirf.setRADDR((byte *)"RECVE"); //设置接收端地址，使用5个字符
     Mirf.payload = 4;  // 设置传送位数，16位是2，32位是4；
     Mirf.channel = 80;              //设置所用信道 无人机控80，枪控、致迪90
     Mirf.config();
+    Mirf.configRegister(RF_SETUP, 0x0F); // 2Mbps: 0x0F,其余参考寄存器的配置
 
    // Read and print RF_SETUP 无线模块初始化检查
-  byte rf_setup = 0;
+  byte rf_setup, config, rf_ch,setup_aw= 0;
   Mirf.readRegister( RF_SETUP, &rf_setup, sizeof(rf_setup) );
   Serial.print( "rf_setup = " );
   Serial.println( rf_setup, BIN );
+  Mirf.readRegister(CONFIG, &config, sizeof(config) );
+  Serial.print( "config = " );
+  Serial.println( config, BIN );
+  Mirf.readRegister(RF_CH, &rf_ch, sizeof(rf_ch) );
+  Serial.print( "rf_ch = " );
+  Serial.println( rf_ch );
+  Mirf.readRegister(SETUP_AW, &setup_aw, sizeof(setup_aw) );
+  Serial.print( "setup_aw= " );
+  Serial.println( setup_aw );
+    
+
   delay(100);
   
   //舵机初始化
@@ -461,7 +476,7 @@ void loop()
     //持续时间大于1.5S,电池低电压
     if(millis()-lastLowtime >= 1500){
       delay(100);
-      DEBUGL("Battery is change Low");        
+      //DEBUGL("Battery is change Low");        
     }
   }
   else{
@@ -469,7 +484,8 @@ void loop()
   }
 
   //发送数据返回
-  Mirf.setTADDR((byte *)"SENDE");           //设置接收端地址
+  // Mirf.setTADDR((byte *)"SENDE");           //设置接收端地址
+  Mirf.setTADDR((byte *)address);           //设置接收端地址
   if(millis() - lastreport > reportTime) {
     lastreport = millis();
     int batVol = analogRead(A0);
