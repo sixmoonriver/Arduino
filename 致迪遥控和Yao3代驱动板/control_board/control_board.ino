@@ -45,13 +45,12 @@
  * PCF8574扩展IO（I2C）：
  *   地址0x20（pcfIO）：
  *     P0~P3 - 输入，复用BTS7960电流反馈
- *     P4~P7 - 输出，辅助驱动电机控制位（对应遥控器按钮）
+ *     P4~P7 - 输出，遥控器开关信号输出（P0~P3映射）
  *   地址0x21（pcfSetup）：
- *     P0 - 输入，上拉，接地低电平进入设置模式
- *     P1 - 输入，上拉，设置项切换
- *     P2 - 输入，上拉，设置项+操作
- *     P3 - 输入，上拉，设置项-操作
- *     P7 - 输入，上拉，低电平强制使用无刷电机
+ *     P4 - 输入，上拉，接地进入设置模式
+ *     P5 - 输入，上拉，设置项切换
+ *     P6 - 输入，上拉，设置项+操作
+ *     P7 - 输入，上拉，设置项-操作
  *
  * OLED显示屏（I2C，地址0x3C）：
  *   A4 - SDA
@@ -150,7 +149,7 @@ struct Settings {
   uint8_t magic;         // 校验标识，应为EEPROM_MAGIC_BYTE
   uint8_t channel;       // 遥控器频道，默认90，范围1~125
   uint8_t batteryType;   // 电池节数：1=1S, 2=2S, 3=3S, 4=4S, 0=自动检测
-  uint8_t motorType;     // 电机类型：0=有刷，1=无刷（P7硬件开关可覆盖）
+  uint8_t motorType;     // 电机类型：0=有刷，1=无刷
   uint8_t useAuxMotor;   // 是否使用辅助驱动输出：0=否，1=是
   int8_t  motorOffset;   // 左电机PWM修正值：-32~+32，默认0
 };
@@ -292,13 +291,11 @@ uint8_t autoDetectBattery(uint16_t voltageMV) {
  *  电机模式管理
  * ============================================================ */
 
-// 更新电机模式（根据P7硬件开关和软件设置）
+// 更新电机模式（根据软件设置，P7已被设置模式按钮占用）
 void updateMotorMode() {
-  // 读取PCF8574(0x21)的P7引脚
-  int p7State = pcfSetup.digitalRead(7);
-
-  // P7低电平=强制无刷；P7高电平=使用软件设置
-  bool newMode = (p7State == LOW) ? true : (settings.motorType == 1);
+  // ★ P7不再用作硬件电机类型检测（已被设置模式占用）
+  // 电机类型完全由软件设置 settings.motorType 决定
+  bool newMode = (settings.motorType == 1);
 
   // 模式切换时需要重新配置引脚
   if (newMode != isBrushlessMode) {
@@ -436,7 +433,7 @@ void controlMotors() {
     return;
   }
 
-  // 更新电机模式（检查P7硬件开关）
+  // 更新电机模式（由软件设置决定）
   updateMotorMode();
 
   // ----- 解析遥控器输入（使用转换后的0~1023格式数据） -----
@@ -683,38 +680,38 @@ void sendControlData() {
  * ============================================================ */
 
 void handleSetupMode() {
-  int p0State = pcfSetup.digitalRead(0);
+  // 读取PCF8574(0x21)的P4~P7（上拉，闭合到GND为低电平）
+  int p4State = pcfSetup.digitalRead(4);   // 进入设置
+  int p5State = pcfSetup.digitalRead(5);   // 切换项
+  int p6State = pcfSetup.digitalRead(6);   // +
+  int p7State = pcfSetup.digitalRead(7);   // -
 
   // ----- 进入设置模式 -----
-  if (!inSettingMode && p0State == LOW) {
+  // P4闭合到GND（低电平）时进入，禁止所有电机控制
+  if (!inSettingMode && p4State == LOW) {
     inSettingMode = true;
     currentSettingIndex = 0;
-    settingEnterTime = millis();  // 记录进入时间（全局变量，不会被覆盖）
-    stopMotors();  // 立即停止所有电机
+    settingEnterTime = millis();
+    stopMotors();
     return;
   }
 
   // ----- 设置模式主逻辑 -----
   if (!inSettingMode) return;
 
-  // 读取设置按钮状态（P1=切换项，P2=加，P3=减）
-  int btnSelect = pcfSetup.digitalRead(1);
-  int btnPlus   = pcfSetup.digitalRead(2);
-  int btnMinus  = pcfSetup.digitalRead(3);
-
   // 防抖：使用静态变量记录上次按键时间
   static unsigned long lastSelectPress = 0;
   static unsigned long lastPlusPress   = 0;
   static unsigned long lastMinusPress  = 0;
 
-  // P1：切换设置项（共5项，循环）
-  if (btnSelect == LOW && millis() - lastSelectPress > 300) {
+  // P5（低电平触发）：切换设置项（共5项，循环）
+  if (p5State == LOW && millis() - lastSelectPress > 300) {
     currentSettingIndex = (currentSettingIndex + 1) % 5;
     lastSelectPress = millis();
   }
 
-  // P2：增加当前设置项的值
-  if (btnPlus == LOW && millis() - lastPlusPress > 300) {
+  // P6（低电平触发）：增加当前设置项的值
+  if (p6State == LOW && millis() - lastPlusPress > 300) {
     switch (currentSettingIndex) {
       case 0: // 遥控器频道
         settings.channel = min(settings.channel + 1, (uint8_t)125);
@@ -735,8 +732,8 @@ void handleSetupMode() {
     lastPlusPress = millis();
   }
 
-  // P3：减少当前设置项的值
-  if (btnMinus == LOW && millis() - lastMinusPress > 300) {
+  // P7（低电平触发）：减少当前设置项的值
+  if (p7State == LOW && millis() - lastMinusPress > 300) {
     switch (currentSettingIndex) {
       case 0: // 遥控器频道
         settings.channel = max(settings.channel - 1, (uint8_t)1);
@@ -758,8 +755,8 @@ void handleSetupMode() {
   }
 
   // ----- 退出设置模式 -----
-  // P0恢复高电平且已进入超过500ms（防抖）时退出
-  if (p0State == HIGH && millis() - settingEnterTime > 500) {
+  // P4恢复高电平（开关断开）且已进入超过500ms时自动保存退出
+  if (p4State == HIGH && millis() - settingEnterTime > 500) {
     saveSettings();       // 保存设置到EEPROM
     inSettingMode = false;
 
@@ -832,7 +829,7 @@ void displaySettingScreen() {
 
   // 第四行：操作提示
   display.setCursor(0, 24);
-  display.print(F("P1:Sel P2:+ P3:-"));
+  display.print(F("P5:Sel P6:+ P7:-"));
 
   display.display();
 }
@@ -1034,7 +1031,7 @@ void setup() {
   }
 
   // 配置PCF8574(0x21)引脚方向
-  // 全部设为输入上拉（P0=进入设置，P1=切换项，P2=加，P3=减，P7=电机类型）
+  // 全部设为输入上拉（P4=进入设置，P5=切换项，P6=加，P7=减）
   for (uint8_t i = 0; i < 8; i++) {
     pcfSetup.pinMode(i, INPUT_PULLUP);
   }
@@ -1083,9 +1080,8 @@ void setup() {
   memset(&controlData, 0, sizeof(ControlData));
 
   // ----- 初始化电机模式 -----
-  // 根据当前设置确定初始模式
-  int p7State = pcfSetup.digitalRead(7);
-  isBrushlessMode = (p7State == LOW) ? true : (settings.motorType == 1);
+  // 完全由软件设置 settings.motorType 决定
+  isBrushlessMode = (settings.motorType == 1);
 
   if (isBrushlessMode) {
     enterBrushlessMode();
