@@ -16,13 +16,12 @@
  *   - Adafruit_SSD1306.h (v2.5.7)         - SSD1306 OLED驱动
  *   - Adafruit_PCF8574.h (v1.1.1)         - PCF8574 I2C扩展
  *   - Adafruit_MPU6050.h (v2.1.4)         - MPU6050六轴传感器
- *   - Servo.h          (Arduino内置 v1.1.8) - 舵机/无刷电调控制
  *   - EEPROM.h         (Arduino内置)       - 参数掉电保存
  *   - avr/wdt.h        (Arduino内置)       - 看门狗定时器
  *
  * 开发者：用户
- * 日期：2026-04-30
- * 版本：v2.0（优化版）
+ * 日期：2026-05-06
+ * 版本：v2.1（优化版 - 修复BLDC模式重启问题）
  *
  * ============================================================
  * 硬件连接说明（参考YaoDriverV3板）：
@@ -32,12 +31,12 @@
  *     D3、D9  - 左侧电机方向控制（D3=DIR1, D9=DIR2）
  *     D2、D10 - 右侧电机方向控制（D2=DIR1, D10=DIR2）
  *     D5、D6  - 左/右电机PWM输出（Timer0，约980Hz）
- *   无刷模式（与有刷复用引脚）：
- *     D3      - 左侧无刷电调信号1（Servo库控制）
- *     D5      - 左侧无刷电调信号2（Servo库控制）
- *     D6      - 右侧无刷电调信号1（Servo库控制）
- *     D9      - 右侧无刷电调信号2（Servo库控制）
- *     注意：Servo库使用Timer1，此时D9/D10硬件PWM不可用
+ *   无刷模式（使用Timer1硬件PWM，零中断开销）：
+ *     D9 (OC1A) - 左侧无刷电调信号（两个左电调信号线并接至此脚）
+ *     D10 (OC1B) - 右侧无刷电调信号（两个右电调信号线并接至此脚）
+ *     D3、D5、D6 在BLDC模式下空闲，可复用为普通IO
+ *     注意：BLDC模式不再使用Servo库，改用Timer1直接寄存器配置硬件PWM，
+ *           彻底消除Timer1 ISR对NRF24L01 SPI通信的干扰
  *
  * 电池电压检测：A0（91K/33K电阻分压 + 10K限流电阻）
  * 电池电流检测：A1（需配合电流传感器，如ACS712）
@@ -77,7 +76,17 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_PCF8574.h>
 #include <Adafruit_MPU6050.h>
-#include <Servo.h>
+// Timer1硬件PWM：不再使用Servo库，避免Timer1 ISR中断干扰NRF24L01 SPI通信
+// BLDC模式仅使用D9(OC1A)和D10(OC1B)作为Timer1硬件PWM输出
+// 接线调整：两个左电调信号线并到D9，两个右电调信号线并到D10
+#define BLDC_LEFT_OUT    9    // OC1A - Timer1硬件PWM，左电调
+#define BLDC_RIGHT_OUT  10    // OC1B - Timer1硬件PWM，右电调
+// Timer1 50Hz PWM参数：16MHz / 8预分频 = 2MHz (0.5us/ticks)
+// 周期 20ms = 40000 ticks，TOP(ICR1) = 39999
+#define TMR1_PERIOD  39999    // 50Hz周期
+#define TMR1_NEUTRAL  3000    // 1500us中位
+#define TMR1_MIN      2000    // 1000us最小
+#define TMR1_MAX      4000    // 2000us最大
 #include <avr/wdt.h>
 #include <EEPROM.h>
 
@@ -86,12 +95,12 @@
  * ============================================================ */
 
 // ----- 电机引脚定义 -----
-const uint8_t LEFT_DIR1  = 3;    // 左侧电机方向1（有刷）/ 左电调1（无刷）
-const uint8_t LEFT_DIR2  = 9;    // 左侧电机方向2（有刷）/ 右电调2（无刷）
+const uint8_t LEFT_DIR1  = 3;    // 左侧电机方向1（有刷）/ BLDC模式空闲
+const uint8_t LEFT_DIR2  = 9;    // 左侧电机方向2（有刷）/ BLDC左电调 OC1A（两个左电调并接）
 const uint8_t RIGHT_DIR1 = 2;    // 右侧电机方向1（有刷）
-const uint8_t RIGHT_DIR2 = 10;   // 右侧电机方向2（有刷）
-const uint8_t LEFT_PWM   = 5;    // 左侧电机PWM（有刷）/ 左电调2（无刷）
-const uint8_t RIGHT_PWM  = 6;    // 右侧电机PWM（有刷）/ 右电调1（无刷）
+const uint8_t RIGHT_DIR2 = 10;   // 右侧电机方向2（有刷）/ BLDC右电调 OC1B（两个右电调并接）
+const uint8_t LEFT_PWM   = 5;    // 左侧电机PWM（有刷）/ BLDC模式空闲
+const uint8_t RIGHT_PWM  = 6;    // 右侧电机PWM（有刷）/ BLDC模式空闲
 
 // ----- 传感器引脚 -----
 const uint8_t BATTERY_PIN = A0;  // 电池电压检测
@@ -185,12 +194,9 @@ Adafruit_PCF8574 pcfIO;       // 扩展IO，地址0x20
 Adafruit_PCF8574 pcfSetup;    // 设置控制输入，地址0x21
 Adafruit_MPU6050 mpu;
 
-// 无刷电调Servo对象（4路，对应D3, D5, D6, D9）
-Servo servoLeft1;    // D3 - 左侧电调1
-Servo servoLeft2;    // D5 - 左侧电调2
-Servo servoRight1;   // D6 - 右侧电调1
-Servo servoRight2;   // D9 - 右侧电调2
-bool servoAttached = false;  // Servo对象是否已attach
+// BLDC模式已改为Timer1硬件PWM（D9/D10），无需Servo对象
+// 标志位是否启用BLDC硬件PWM
+bool timer1BLDCActive = false;
 
 // ----- 数据 -----
 Settings settings;
@@ -297,14 +303,12 @@ void updateMotorMode() {
   // 电机类型完全由软件设置 settings.motorType 决定
   bool newMode = (settings.motorType == 1);
 
-  // 模式切换时需要重新配置引脚
+  // 模式切换时需要重新配置引脚/Timer1寄存器
   if (newMode != isBrushlessMode) {
     if (newMode) {
-      // 切换到无刷模式：attach Servo对象
-      enterBrushlessMode();
+      enterBrushlessMode();   // 配置Timer1硬件PWM，D9/D10输出50Hz电调信号
     } else {
-      // 切换到有刷模式：detach Servo对象，恢复GPIO
-      enterBrushedMode();
+      enterBrushedMode();     // 停止Timer1，恢复D9/D10为普通GPIO
     }
     isBrushlessMode = newMode;
   }
@@ -312,13 +316,11 @@ void updateMotorMode() {
 
 // 进入有刷电机模式
 void enterBrushedMode() {
-  // 先detach所有Servo对象，释放Timer1
-  if (servoAttached) {
-    servoLeft1.detach();
-    servoLeft2.detach();
-    servoRight1.detach();
-    servoRight2.detach();
-    servoAttached = false;
+  // 停止Timer1硬件PWM（释放D9/D10，恢复为普通GPIO）
+  if (timer1BLDCActive) {
+    TCCR1A = 0;          // 断开OC1A/OC1B输出
+    TCCR1B = 0;          // 停止Timer1
+    timer1BLDCActive = false;
   }
 
   // 配置方向引脚为输出
@@ -338,25 +340,33 @@ void enterBrushedMode() {
   analogWrite(RIGHT_PWM, 0);
 }
 
-// 进入无刷电机模式
+// 进入无刷电机模式（使用Timer1硬件PWM，无需Servo库和ISR）
 void enterBrushlessMode() {
-  // D2、D10在无刷模式下不使用，设为输入（高阻态）
+  // D2在无刷模式下不使用，设为输入（高阻态）
   pinMode(RIGHT_DIR1, INPUT);   // D2
-  pinMode(RIGHT_DIR2, INPUT);   // D10
 
-  // attach Servo对象到D3, D5, D6, D9
-  // Servo库会接管这些引脚，输出50Hz的舵机信号
-  servoLeft1.attach(LEFT_DIR1);   // D3 - 左电调1
-  servoLeft2.attach(LEFT_PWM);    // D5 - 左电调2
-  servoRight1.attach(RIGHT_PWM);  // D6 - 右电调1
-  servoRight2.attach(LEFT_DIR2);  // D9 - 右电调2
-  servoAttached = true;
+  // 配置D9(OC1A)和D10(OC1B)为Timer1硬件PWM输出
+  // 接线要求：两个左电调信号线并到D9，两个右电调信号线并到D10
+  pinMode(BLDC_LEFT_OUT, OUTPUT);
+  pinMode(BLDC_RIGHT_OUT, OUTPUT);
 
-  // 初始化到中位（停止）
-  servoLeft1.writeMicroseconds(SERVO_NEUTRAL);
-  servoLeft2.writeMicroseconds(SERVO_NEUTRAL);
-  servoRight1.writeMicroseconds(SERVO_NEUTRAL);
-  servoRight2.writeMicroseconds(SERVO_NEUTRAL);
+  // ----- 配置Timer1 Fast PWM mode 14 (WGM13:0=1110), TOP=ICR1 -----
+  // 预分频8: 16MHz/8 = 2MHz (0.5us/ticks)
+  // 50Hz周期: 20ms / 0.5us = 40000 ticks → ICR1 = 39999
+  // 中位1500us: 1500 / 0.5 = 3000 ticks
+  // 非反相PWM (COM1A1=1, COM1B1=1): 匹配时清零，TOP时置位
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCNT1 = 0;
+
+  ICR1 = TMR1_PERIOD;       // TOP值，决定50Hz频率
+  OCR1A = TMR1_NEUTRAL;     // D9 = 1500us (中位停止)
+  OCR1B = TMR1_NEUTRAL;     // D10 = 1500us (中位停止)
+
+  TCCR1A = (1 << COM1A1) | (1 << COM1B1) | (1 << WGM11);
+  TCCR1B = (1 << WGM13) | (1 << WGM12) | (1 << CS11);  // 预分频8
+
+  timer1BLDCActive = true;
 }
 
 /* ============================================================
@@ -365,12 +375,10 @@ void enterBrushlessMode() {
 
 void stopMotors() {
   if (isBrushlessMode) {
-    // 无刷模式：输出中位脉冲（停止）
-    if (servoAttached) {
-      servoLeft1.writeMicroseconds(SERVO_NEUTRAL);
-      servoLeft2.writeMicroseconds(SERVO_NEUTRAL);
-      servoRight1.writeMicroseconds(SERVO_NEUTRAL);
-      servoRight2.writeMicroseconds(SERVO_NEUTRAL);
+    // 无刷模式：Timer1硬件PWM输出中位脉冲（停止）
+    if (timer1BLDCActive) {
+      OCR1A = TMR1_NEUTRAL;   // D9中位
+      OCR1B = TMR1_NEUTRAL;   // D10中位
     }
   } else {
     // 有刷模式：方向引脚全低，PWM归零
@@ -419,6 +427,7 @@ void readSensors() {
     controlData.accelY = (int16_t)(accelEvent.acceleration.y * 100);
     controlData.accelZ = (int16_t)(accelEvent.acceleration.z * 100);
     // gyroZ仍保留在gyroEvent中供直线修正使用，但不再回传给遥控器
+    wdt_reset();  // MPU6050 I2C操作后喂狗
   }
 }
 
@@ -538,9 +547,9 @@ void controlBrushedMotors(int basePWM, int leftSpeed, int rightSpeed) {
   controlData.rightMotorPWM = finalRightPWM;
 }
 
-// 无刷电机控制（双向电调，使用Servo库输出50Hz舵机信号）
+// 无刷电机控制（使用Timer1硬件PWM输出到D9/D10，无ISR开销）
 void controlBrushlessMotors(int basePWM, int leftSpeed, int rightSpeed) {
-  if (!servoAttached) return;
+  if (!timer1BLDCActive) return;
 
   // 将速度(0~512)映射为脉冲宽度偏移(0~500us)
   // 中位1500us=停止，>1500us=前进，<1500us=后退
@@ -573,11 +582,10 @@ void controlBrushlessMotors(int basePWM, int leftSpeed, int rightSpeed) {
   leftPulse  = constrain(leftPulse,  SERVO_MAX_REVERSE, SERVO_MAX_FORWARD);
   rightPulse = constrain(rightPulse, SERVO_MAX_REVERSE, SERVO_MAX_FORWARD);
 
-  // 输出到电调
-  servoLeft1.writeMicroseconds(leftPulse);   // D3
-  servoLeft2.writeMicroseconds(leftPulse);   // D5（与D3同步）
-  servoRight1.writeMicroseconds(rightPulse); // D6
-  servoRight2.writeMicroseconds(rightPulse); // D9（与D6同步）
+  // 写入Timer1 OCR寄存器: 脉冲us × 2 = 硬件ticks (0.5us/tick)
+  // D9 = OC1A = 左电调, D10 = OC1B = 右电调
+  OCR1A = constrain(leftPulse * 2, TMR1_MIN, TMR1_MAX);
+  OCR1B = constrain(rightPulse * 2, TMR1_MIN, TMR1_MAX);
 
   // 更新回传数据
   controlData.leftMotorPWM  = finalLeftPWM;
@@ -594,11 +602,12 @@ static bool newDataArrived = false; // 有新数据需要解析（给parseRemote
 
 void receiveRemoteData() {
   // ★ 确保NRF在RX模式：isSending()在发送完成时会自动切换回RX模式
-  if (Mirf.isSending()) return;
+  if (Mirf.isSending()) { wdt_reset(); return; }
 
   if (Mirf.dataReady()) {
     // 读取数据到缓冲区，再拷贝到结构体（避免溢出）
     Mirf.getData(nrfBuffer);
+    wdt_reset();  // SPI读取后喂狗，防止NRF异常导致阻塞超时
     memset(&remoteData, 0, sizeof(RemoteData));
     memcpy(&remoteData, nrfBuffer, sizeof(RemoteData));
     lastReceiveTime = millis();
@@ -611,6 +620,7 @@ void receiveRemoteData() {
   if (millis() - lastReceiveTime > RF_TIMEOUT) {
     rfConnected = false;
   }
+  wdt_reset();  // 函数末尾喂狗，确保即使无数据也不漏喂
 }
 
 // 解析遥控器数据（在回传之后执行，避免延迟回传）
@@ -685,6 +695,7 @@ void handleSetupMode() {
   int p5State = pcfSetup.digitalRead(5);   // 切换项
   int p6State = pcfSetup.digitalRead(6);   // +
   int p7State = pcfSetup.digitalRead(7);   // -
+  wdt_reset();  // PCF8574 I2C操作后喂狗
 
   // ----- 进入设置模式 -----
   // P4闭合到GND（低电平）时进入，禁止所有电机控制
@@ -769,12 +780,14 @@ void handleSetupMode() {
 
     // 切换到有刷/无刷模式
     updateMotorMode();
+    wdt_reset();  // EEPROM写入 + NRF重配 + Servo操作后喂狗
     return;
   }
 
   // ----- 设置界面显示（仅在OLED可用时） -----
   if (oledAvailable) {
     displaySettingScreen();
+    wdt_reset();  // OLED I2C操作后喂狗
   }
 }
 
@@ -871,6 +884,7 @@ void displayInfo() {
   }
 
   display.display();
+  wdt_reset();  // OLED I2C操作后喂狗
 }
 
 // 第一屏：本地信息
@@ -1145,5 +1159,6 @@ void loop() {
   // 8. 喂看门狗
   wdt_reset();
 
-  // 主循环不使用delay()，依靠各函数内部的限流机制
+  // 9. 短延时，降低NRF SPI通信密度，给Servo ISR和NRF硬件留稳定时间
+  delay(10);
 }
