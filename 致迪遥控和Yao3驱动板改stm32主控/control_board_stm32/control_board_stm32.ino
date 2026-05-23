@@ -54,17 +54,19 @@
  *   PB7 - SDA
  *
  * ----- 电机控制（有刷模式使用TIM2硬件PWM PA0/PA1） -----
- *   PB3  - LEFT_DIR1  (有刷方向1) / BLDC模式: LEFT_ESC(Servo1)
- *   PB4  - LEFT_DIR2  (有刷方向2) / BLDC模式: 空闲(高阻)
- *   PB5  - RIGHT_DIR1 (有刷方向1) / BLDC模式: RIGHT_ESC(Servo2)
- *   PB8  - RIGHT_DIR2 (有刷方向2) / BLDC模式: 空闲(高阻)
- *   PA0  - LEFT_PWM   (有刷PWM左, TIM2_CH1, ~1kHz)
- *   PA1  - RIGHT_PWM  (有刷PWM右, TIM2_CH2, ~1kHz)
+ *   PB3  - LEFT_DIR1  (有刷方向1) / BLDC左电调主输出
+ *   PB4  - LEFT_DIR2  (有刷方向2) / BLDC右电调主输出
+ *   PB5  - RIGHT_DIR1 (有刷方向1) / BLDC模式：空闲(高阻)
+ *   PB8  - RIGHT_DIR2 (有刷方向2) / BLDC模式：空闲(高阻)
+ *   PA0  - LEFT_PWM   (有刷PWM左, TIM2_CH1) / BLDC左电调镜像输出(与PB3同相)
+ *   PA1  - RIGHT_PWM  (有刷PWM右, TIM2_CH2) / BLDC右电调镜像输出(与PB4同相)
  *
  *   ★ BLDC模式引脚复用说明：
  *     有刷模式使用4个方向脚+2个PWM脚，共6个引脚
- *     无刷模式仅需2个引脚(PB3/PB5)输出50Hz电调信号(Servo库)
- *     PB3/PB5在两种模式下复用，无需额外接线
+ *     无刷模式使用4个引脚输出2路电调信号：
+ *       PB3+PA0 → 左电调（同相信号，接两个左电调信号线）
+ *       PB4+PA1 → 右电调（同相信号，接两个右电调信号线）
+ *     PB5/PB8 在无刷模式下设为高阻，悬空不接
  *
  * ----- ADC输入（12位精度，参考电压3.3V） -----
  *   PA2  - 电池电压检测 (ADC12_IN2)
@@ -92,9 +94,9 @@
  *     PB3、PB4 - 左侧电机方向控制
  *     PB5、PB8 - 右侧电机方向控制
  *     PA0、PA1 - 左/右电机PWM输出（TIM2，约1kHz）
- *   无刷模式（使用Servo库，任意引脚均可）：
- *     PB3 - 左侧无刷电调信号（两个左电调信号线并接至此脚）
- *     PB5 - 右侧无刷电调信号（两个右电调信号线并接至此脚）
+ *   无刷模式（使用Servo库，4路同相输出）：
+ *     PB3+PA0 - 左侧无刷电调信号（同相，接两个左电调信号线）
+ *     PB4+PA1 - 右侧无刷电调信号（同相，接两个右电调信号线）
  *     ★ STM32的Servo库使用独立定时器，与SPI无冲突
  *
  * 电池电压检测：PA2（91K/33K电阻分压 + 10K限流电阻）
@@ -136,17 +138,20 @@
 #define NRF_CSN     PB0       // NRF片选引脚
 
 // ----- 电机引脚 -----
-// ★ PB3/PB5 在有刷模式下作为方向控制，无刷模式下作为Servo电调信号输出
+// ★ 有刷模式：PB3/PB4/PA0=左电机, PB5/PB8/PA1=右电机
+// ★ 无刷模式：PB3+PA0=左电调, PB4+PA1=右电调(同相信号输出)
 const uint8_t LEFT_DIR1  = PB3;   // 有刷：左侧方向1 / 无刷：左电调Servo
-const uint8_t LEFT_DIR2  = PB4;   // 有刷：左侧方向2 / 无刷：空闲
-const uint8_t RIGHT_DIR1 = PB5;   // 有刷：右侧方向1 / 无刷：右电调Servo
-const uint8_t RIGHT_DIR2 = PB8;   // 有刷：右侧方向2 / 无刷：空闲
-const uint8_t LEFT_PWM   = PA0;   // 有刷：左侧PWM (TIM2_CH1)
-const uint8_t RIGHT_PWM  = PA1;   // 有刷：右侧PWM (TIM2_CH2)
+const uint8_t LEFT_DIR2  = PB4;   // 有刷：左侧方向2 / 无刷：右电调Servo
+const uint8_t RIGHT_DIR1 = PB5;   // 有刷：右侧方向1 / 无刷：空闲(高阻)
+const uint8_t RIGHT_DIR2 = PB8;   // 有刷：右侧方向2 / 无刷：空闲(高阻)
+const uint8_t LEFT_PWM   = PA0;   // 有刷：左侧PWM / 无刷：左电调镜像输出
+const uint8_t RIGHT_PWM  = PA1;   // 有刷：右侧PWM / 无刷：右电调镜像输出
 
-// 无刷电调信号脚（与有刷方向脚复用PB3/PB5）
-#define BLDC_LEFT_PIN    PB3     // 左电调Servo连接脚
-#define BLDC_RIGHT_PIN   PB5     // 右电调Servo连接脚
+// 无刷电调信号脚
+#define BLDC_LEFT_PIN    PB3     // 左电调主输出
+#define BLDC_RIGHT_PIN   PB4     // 右电调主输出
+#define BLDC_LEFT_MIRROR PA0     // 左电调镜像输出(与PB3同相)
+#define BLDC_RIGHT_MIRROR PA1    // 右电调镜像输出(与PB4同相)
 
 // ----- 传感器ADC引脚 -----
 // STM32的analogRead()返回12位值(0~4095)，参考电压3.3V
@@ -244,8 +249,10 @@ Adafruit_MPU6050 mpu;
 
 // ----- 无刷电调Servo对象 -----
 // STM32的Servo库使用独立定时器(TIM1/TIM8)，与SPI1完全独立，无冲突
-Servo escLeft;      // 左侧无刷电调（PB3）
-Servo escRight;     // 右侧无刷电调（PB5）
+Servo escLeft;       // 左侧无刷电调  PB3(主)
+Servo escLeftMirror; // 左侧无刷电调  PA0(镜像)
+Servo escRight;      // 右侧无刷电调  PB4(主)
+Servo escRightMirror;// 右侧无刷电调  PA1(镜像)
 
 /* ============================================================
  *  全局变量
@@ -366,17 +373,19 @@ void updateMotorMode() {
 
 // 进入有刷电机模式
 void enterBrushedMode() {
-  // 分离无刷电调Servo（释放PB3/PB5）
+  // 分离无刷电调Servo（释放PB3/PB4/PA0/PA1）
   escLeft.detach();
+  escLeftMirror.detach();
   escRight.detach();
+  escRightMirror.detach();
 
   // 配置方向引脚为输出
-  pinMode(LEFT_DIR1, OUTPUT);
-  pinMode(LEFT_DIR2, OUTPUT);
-  pinMode(RIGHT_DIR1, OUTPUT);
-  pinMode(RIGHT_DIR2, OUTPUT);
-  pinMode(LEFT_PWM, OUTPUT);
-  pinMode(RIGHT_PWM, OUTPUT);
+  pinMode(LEFT_DIR1, OUTPUT);   // PB3
+  pinMode(LEFT_DIR2, OUTPUT);   // PB4
+  pinMode(RIGHT_DIR1, OUTPUT);  // PB5
+  pinMode(RIGHT_DIR2, OUTPUT);  // PB8
+  pinMode(LEFT_PWM, OUTPUT);    // PA0
+  pinMode(RIGHT_PWM, OUTPUT);   // PA1
 
   // ★ STM32 analogWrite频率调整
   // 默认TIM2 PWM频率约1kHz，适合有刷电机
@@ -392,32 +401,33 @@ void enterBrushedMode() {
 }
 
 // 进入无刷电机模式（使用Servo库，STM32上无Timer冲突）
-// ★ STM32与AVR的关键区别：
-//   AVR的Servo库使用Timer1中断，与SPI共用中断优先级，导致NRF通信异常
-//   STM32的Servo库使用TIM1/TIM8（高级定时器），独立运行，
-//   SPI1使用外设DMA或独立中断通道，完全不受Servo影响
+// ★ BLDC引脚分配：PB3+PA0=左电调(同相), PB4+PA1=右电调(同相)
 void enterBrushlessMode() {
   // 停止有刷PWM输出
   analogWrite(LEFT_PWM, 0);
   analogWrite(RIGHT_PWM, 0);
 
-  // 有刷方向脚在BLDC模式下：PB4/PB8设为输入高阻
-  pinMode(LEFT_DIR2, INPUT);
-  pinMode(RIGHT_DIR2, INPUT);
+  // 无刷模式下未使用的方向脚设为高阻（PB5, PB8）
+  pinMode(RIGHT_DIR1, INPUT);   // PB5 高阻
+  pinMode(RIGHT_DIR2, INPUT);   // PB8 高阻
 
-  // 连接Servo到PB3/PB5（电调信号线）
+  // 连接Servo主输出
   // attach(pin, minPulse, maxPulse)
   // 标准电调：1000us=后退最大, 1500us=中位停止, 2000us=前进最大
-  escLeft.attach(BLDC_LEFT_PIN, 1000, 2000);
-  escRight.attach(BLDC_RIGHT_PIN, 1000, 2000);
+  escLeft.attach(BLDC_LEFT_PIN, 1000, 2000);     // PB3 左主
+  escRight.attach(BLDC_RIGHT_PIN, 1000, 2000);    // PB4 右主
+  // 连接Servo镜像输出（与主输出同相）
+  escLeftMirror.attach(BLDC_LEFT_MIRROR, 1000, 2000);   // PA0 左镜像
+  escRightMirror.attach(BLDC_RIGHT_MIRROR, 1000, 2000);  // PA1 右镜像
+
   IWatchdog.reload();              // 喂狗再延时
   delay(100);  // 给电调初始化时间（上电时需要短暂延时等待电调自检）
 
-  // 输出中位脉冲（停止）
+  // 输出中位脉冲（停止）—主输出+镜像同时设置
   escLeft.writeMicroseconds(1500);
+  escLeftMirror.writeMicroseconds(1500);
   escRight.writeMicroseconds(1500);
-
-  // PB3/PB5已由Servo库管理，不再手动控制
+  escRightMirror.writeMicroseconds(1500);
 }
 
 /* ============================================================
@@ -426,9 +436,11 @@ void enterBrushlessMode() {
 
 void stopMotors() {
   if (isBrushlessMode) {
-    // 无刷：Servo输出中位脉冲（停止）
+    // 无刷：主输出+镜像输出中位脉冲（停止）
     escLeft.writeMicroseconds(1500);
+    escLeftMirror.writeMicroseconds(1500);
     escRight.writeMicroseconds(1500);
+    escRightMirror.writeMicroseconds(1500);
   } else {
     // 有刷：方向引脚全低，PWM归零
     digitalWrite(LEFT_DIR1, LOW);
@@ -614,9 +626,11 @@ void controlBrushlessMotors(int basePWM, int leftSpeed, int rightSpeed) {
   rightPulse = constrain(rightPulse, 1000, 2000);
 
   // Servo库writeMicroseconds()输出指定宽度的脉冲
-  // STM32上由TIM1硬件自动产生50Hz脉冲，无需CPU干预
+  // 主输出 + 镜像输出 同步发送同相信号
   escLeft.writeMicroseconds(leftPulse);
+  escLeftMirror.writeMicroseconds(leftPulse);
   escRight.writeMicroseconds(rightPulse);
+  escRightMirror.writeMicroseconds(rightPulse);
 
   controlData.leftMotorPWM  = finalLeftPWM;
   controlData.rightMotorPWM = finalRightPWM;
