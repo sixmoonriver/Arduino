@@ -43,7 +43,7 @@ void loop()
   y_value = analogRead(ypin);
   y_value = map(y_value,0,1023,0,255);
   //value = random(255); 
-  trans_value = x_value<<8+y_value;
+  trans_value = x_value<<8+y_vac:\Users\Administrator\CodeBuddy\20260512141324\control_board_stm32\control_board_stm32.inolue;
   if(x_value != last_xvalue | y_value != last_yvalue)
   {
     Mirf.send((byte *)&trans_value);                //发送指令，组合后的数据，低8位为油门数据，高8位为方向数据
@@ -56,6 +56,6 @@ void loop()
     Serial.println(y_value);
     Serial.print("trans_value: ");
     Serial.println(trans_value);
-  }
+  }c:\Users\Administrator\CodeBuddy\20260512141324\control_board_stm32\control_board_stm32.ino
     delay(100);
 }
