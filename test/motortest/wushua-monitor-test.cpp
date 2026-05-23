@@ -6,7 +6,7 @@ int potpin = 1;  // analog pin used to connect the potentiometer
 int val;    // variable to read the value from the analog pin
 int stopPoint=1000;
 int forwardPin = 3;
-int backwardPin = 10;
+int backwardPin = 11;
 void setup() {
   pinMode(forwardPin,OUTPUT);
   pinMode(backwardPin,OUTPUT);
@@ -22,18 +22,18 @@ void setup() {
 }
 
 void loop() {
-  val = analogRead(potpin); 
+  val = analogRead(potpin); //电位器中点值499
   Serial.println(val);           // reads the value of the potentiometer (value between 0 and 1023)
   // 有刷电机，使用IBT-4电机驱动
-  if(val>520){
-    int forwardPwm = map(val,520,1023,0,255);
+  if(val>510){
+    int forwardPwm = map(val,510,1023,0,255);
   //   val = map(val,512,1023,stopPoint,1500);
   //   myservo.writeMicroseconds(val);
     analogWrite(forwardPin,forwardPwm);
     analogWrite(backwardPin,0);
   }
-  else if(val<504){
-    int backwardPwm = map(val,504,0,0,255);
+  else if(val<490){
+    int backwardPwm = map(val,490,0,0,255);
   //   val = map(val,512,1023,stopPoint,1500);
   //   myservo.writeMicroseconds(val);
     analogWrite(forwardPin,0);
