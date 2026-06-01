@@ -31,12 +31,12 @@
  *     D3、D9  - 左侧电机方向控制（D3=DIR1, D9=DIR2）
  *     D2、D10 - 右侧电机方向控制（D2=DIR1, D10=DIR2）
  *     D5、D6  - 左/右电机PWM输出（Timer0，约980Hz）
- *   无刷模式（使用Timer1硬件PWM，零中断开销）：
- *     D9 (OC1A) - 左侧无刷电调信号（两个左电调信号线并接至此脚）
- *     D10 (OC1B) - 右侧无刷电调信号（两个右电调信号线并接至此脚）
- *     D3、D5、D6 在BLDC模式下空闲，可复用为普通IO
- *     注意：BLDC模式不再使用Servo库，改用Timer1直接寄存器配置硬件PWM，
- *           彻底消除Timer1 ISR对NRF24L01 SPI通信的干扰
+ *   无刷模式（Timer1+D9 + Timer2+D3硬件PWM，零中断开销）：
+ *     D3 (OC2B) - 左侧无刷电调信号（两个左电调信号线并接至此脚）
+ *     D9 (OC1A) - 右侧无刷电调信号（两个右电调信号线并接至此脚）
+ *     D2、D5、D6、D10 在BLDC模式下空闲
+ *     注意：BLDC模式不再使用Servo库，改用Timer1+Timer2硬件PWM，
+ *           无任何定时器中断，对NRF SPI无影响
  *
  * 电池电压检测：A0（91K/33K电阻分压 + 10K限流电阻）
  * 电池电流检测：A1（需配合电流传感器，如ACS712）
@@ -76,17 +76,20 @@
 #include <Adafruit_SSD1306.h>
 #include <Adafruit_PCF8574.h>
 #include <Adafruit_MPU6050.h>
-// Timer1硬件PWM：不再使用Servo库，避免Timer1 ISR中断干扰NRF24L01 SPI通信
-// BLDC模式仅使用D9(OC1A)和D10(OC1B)作为Timer1硬件PWM输出
-// 接线调整：两个左电调信号线并到D9，两个右电调信号线并到D10
-#define BLDC_LEFT_OUT    9    // OC1A - Timer1硬件PWM，左电调
-#define BLDC_RIGHT_OUT  10    // OC1B - Timer1硬件PWM，右电调
+// 无刷电调硬件PWM：D9(OC1A, Timer1, 50Hz) + D3(OC2B, Timer2, ~61Hz)
+#define BLDC_LEFT_OUT    3    // OC2B - Timer2硬件PWM，左电调
+#define BLDC_RIGHT_OUT   9    // OC1A - Timer1硬件PWM，右电调
 // Timer1 50Hz PWM参数：16MHz / 8预分频 = 2MHz (0.5us/ticks)
 // 周期 20ms = 40000 ticks，TOP(ICR1) = 39999
 #define TMR1_PERIOD  39999    // 50Hz周期
-#define TMR1_NEUTRAL  3000    // 1500us中位
+#define TMR1_NEUTRAL  3000    // 1500us中位 (1500/0.5)
 #define TMR1_MIN      2000    // 1000us最小
 #define TMR1_MAX      4000    // 2000us最大
+// Timer2 ~61Hz PWM参数：16MHz / 1024预分频 = 15625Hz, 8位(TOP=255)
+#define TMR2_TOP       255    // 8位TOP
+#define TMR2_NEUTRAL    23    // 1500us中位 (1500/64 ≈ 23)
+#define TMR2_MIN        15    // 1000us最小 (1000/64 ≈ 15)
+#define TMR2_MAX        31    // 2000us最大 (2000/64 ≈ 31)
 #include <avr/wdt.h>
 #include <EEPROM.h>
 
@@ -95,12 +98,12 @@
  * ============================================================ */
 
 // ----- 电机引脚定义 -----
-const uint8_t LEFT_DIR1  = 3;    // 左侧电机方向1（有刷）/ BLDC模式空闲
-const uint8_t LEFT_DIR2  = 9;    // 左侧电机方向2（有刷）/ BLDC左电调 OC1A（两个左电调并接）
+const uint8_t LEFT_DIR1  = 3;    // 左侧电机方向1（有刷）/ BLDC左电调 OC2B
+const uint8_t LEFT_DIR2  = 9;    // 左侧电机方向2（有刷）/ BLDC右电调 OC1A
 const uint8_t RIGHT_DIR1 = 2;    // 右侧电机方向1（有刷）
-const uint8_t RIGHT_DIR2 = 10;   // 右侧电机方向2（有刷）/ BLDC右电调 OC1B（两个右电调并接）
-const uint8_t LEFT_PWM   = 5;    // 左侧电机PWM（有刷）/ BLDC模式空闲
-const uint8_t RIGHT_PWM  = 6;    // 右侧电机PWM（有刷）/ BLDC模式空闲
+const uint8_t RIGHT_DIR2 = 10;   // 右侧电机方向2（有刷）
+const uint8_t LEFT_PWM   = 5;    // 左侧电机PWM（有刷）/ BLDC空闲
+const uint8_t RIGHT_PWM  = 6;    // 右侧电机PWM（有刷）/ BLDC空闲
 
 // ----- 传感器引脚 -----
 const uint8_t BATTERY_PIN = A0;  // 电池电压检测
@@ -314,12 +317,16 @@ void updateMotorMode() {
   }
 }
 
-// 进入有刷电机模式
+/* ============================================================
+ *  进入有刷电机模式
+ * ============================================================ */
 void enterBrushedMode() {
-  // 停止Timer1硬件PWM（释放D9/D10，恢复为普通GPIO）
+  // 停止Timer1和Timer2硬件PWM（释放D9/D3，恢复为普通GPIO）
   if (timer1BLDCActive) {
-    TCCR1A = 0;          // 断开OC1A/OC1B输出
+    TCCR1A = 0;
     TCCR1B = 0;          // 停止Timer1
+    TCCR2A = 0;
+    TCCR2B = 0;          // 停止Timer2
     timer1BLDCActive = false;
   }
 
@@ -340,31 +347,31 @@ void enterBrushedMode() {
   analogWrite(RIGHT_PWM, 0);
 }
 
-// 进入无刷电机模式（使用Timer1硬件PWM，无需Servo库和ISR）
+// 进入无刷模式（Timer1+D9 + Timer2+D3硬件PWM，零中断）
 void enterBrushlessMode() {
   // D2在无刷模式下不使用，设为输入（高阻态）
   pinMode(RIGHT_DIR1, INPUT);   // D2
 
-  // 配置D9(OC1A)和D10(OC1B)为Timer1硬件PWM输出
-  // 接线要求：两个左电调信号线并到D9，两个右电调信号线并到D10
+  // D3(OC2B, Timer2) = 左电调, D9(OC1A, Timer1) = 右电调
+  // 接线：两个左电调信号线并到D3，两个右电调信号线并到D9
   pinMode(BLDC_LEFT_OUT, OUTPUT);
   pinMode(BLDC_RIGHT_OUT, OUTPUT);
 
-  // ----- 配置Timer1 Fast PWM mode 14 (WGM13:0=1110), TOP=ICR1 -----
-  // 预分频8: 16MHz/8 = 2MHz (0.5us/ticks)
-  // 50Hz周期: 20ms / 0.5us = 40000 ticks → ICR1 = 39999
-  // 中位1500us: 1500 / 0.5 = 3000 ticks
-  // 非反相PWM (COM1A1=1, COM1B1=1): 匹配时清零，TOP时置位
-  TCCR1A = 0;
-  TCCR1B = 0;
-  TCNT1 = 0;
-
-  ICR1 = TMR1_PERIOD;       // TOP值，决定50Hz频率
+  // ----- 1. Timer1 → D9 (OC1A)：Fast PWM mode 14, 50Hz -----
+  // 预分频8: 16MHz/8 = 2MHz (0.5us/ticks), ICR1 = 39999 → 50Hz
+  TCCR1A = 0; TCCR1B = 0; TCNT1 = 0;
+  ICR1 = TMR1_PERIOD;
   OCR1A = TMR1_NEUTRAL;     // D9 = 1500us (中位停止)
-  OCR1B = TMR1_NEUTRAL;     // D10 = 1500us (中位停止)
+  TCCR1A = (1 << COM1A1) | (1 << WGM11);
+  TCCR1B = (1 << WGM13) | (1 << WGM12) | (1 << CS11);
 
-  TCCR1A = (1 << COM1A1) | (1 << COM1B1) | (1 << WGM11);
-  TCCR1B = (1 << WGM13) | (1 << WGM12) | (1 << CS11);  // 预分频8
+  // ----- 2. Timer2 → D3 (OC2B)：Fast PWM mode 3, ~61Hz -----
+  // 预分频1024: 16MHz/1024 = 15625Hz, 8位TOP=255, 每tick=64us
+  TCCR2A = 0; TCCR2B = 0; TCNT2 = 0;
+  OCR2A = TMR2_TOP;
+  OCR2B = TMR2_NEUTRAL;     // D3 = ~1500us (中位停止)
+  TCCR2A = (1 << COM2B1) | (1 << WGM21) | (1 << WGM20);
+  TCCR2B = (1 << CS22) | (1 << CS21) | (1 << CS20);
 
   timer1BLDCActive = true;
 }
@@ -375,10 +382,10 @@ void enterBrushlessMode() {
 
 void stopMotors() {
   if (isBrushlessMode) {
-    // 无刷模式：Timer1硬件PWM输出中位脉冲（停止）
+    // 无刷模式：硬件PWM输出中位脉冲（停止）
     if (timer1BLDCActive) {
-      OCR1A = TMR1_NEUTRAL;   // D9中位
-      OCR1B = TMR1_NEUTRAL;   // D10中位
+      OCR1A = TMR1_NEUTRAL;   // D9中位 (Timer1, 50Hz) - 右电调
+      OCR2B = TMR2_NEUTRAL;   // D3中位 (Timer2, ~61Hz) - 左电调
     }
   } else {
     // 有刷模式：方向引脚全低，PWM归零
@@ -582,10 +589,11 @@ void controlBrushlessMotors(int basePWM, int leftSpeed, int rightSpeed) {
   leftPulse  = constrain(leftPulse,  SERVO_MAX_REVERSE, SERVO_MAX_FORWARD);
   rightPulse = constrain(rightPulse, SERVO_MAX_REVERSE, SERVO_MAX_FORWARD);
 
-  // 写入Timer1 OCR寄存器: 脉冲us × 2 = 硬件ticks (0.5us/tick)
-  // D9 = OC1A = 左电调, D10 = OC1B = 右电调
-  OCR1A = constrain(leftPulse * 2, TMR1_MIN, TMR1_MAX);
-  OCR1B = constrain(rightPulse * 2, TMR1_MIN, TMR1_MAX);
+  // 写入硬件PWM寄存器
+  // D9 = OC1A (Timer1, 50Hz, 0.5us/tick) → pulse_us × 2
+  OCR1A = constrain(rightPulse * 2, TMR1_MIN, TMR1_MAX);
+  // D3 = OC2B (Timer2, ~61Hz, 64us/tick) → pulse_us / 64
+  OCR2B = constrain(leftPulse / 64, TMR2_MIN, TMR2_MAX);
 
   // 更新回传数据
   controlData.leftMotorPWM  = finalLeftPWM;
@@ -677,7 +685,9 @@ void sendControlData() {
   while(Mirf.isSending()) {
     wdt_reset();               // 等发送时喂狗，防止WDT复位
     if (millis() - ts > 100) { // 最多等100ms
-      Mirf.powerUpRx();        // 强制切回RX模式
+      // NRF可能已锁死，跳过powerUpRx（它也是SPI命令，同样可能失败），
+      // 直接重新初始化全部NRF
+      Mirf.powerUpRx();        // 尝试切回RX
       Mirf.flushRx();          // 清RX FIFO
       break;
     }
@@ -1158,7 +1168,4 @@ void loop() {
 
   // 8. 喂看门狗
   wdt_reset();
-
-  // 9. 短延时，降低NRF SPI通信密度，给Servo ISR和NRF硬件留稳定时间
-  delay(10);
 }
